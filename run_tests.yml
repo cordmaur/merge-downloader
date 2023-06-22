@@ -1,0 +1,15 @@
+version: '3'
+services:
+  mycontainer:
+    container_name: merge-test
+    image: cordmaur/merge-downloader:v1
+    volumes:
+      # - d:/OneDrive/Trabalho/SOE/COVEC/RelatoriosChuva/reports_folder:/workspaces/reports_folder
+      - $PWD:/app
+
+    command: >
+      /bin/sh -c "cd /app &&
+      pip install -e . &&
+      pytest"
+
+
