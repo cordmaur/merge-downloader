@@ -5,7 +5,7 @@ Doing:
 * Separate downloader from reporter
 * Chuva anual - 1o Out/30 Sep - Últimos 10 anos
 
-
+![Example Gif](data/south_america.gif)
 
 
 TODO List: 
