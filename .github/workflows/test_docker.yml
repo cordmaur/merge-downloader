@@ -15,7 +15,12 @@ jobs:
     - name: Check out repository
       uses: actions/checkout@v3
 
+    - name: Verify where we are at the moment
+      run: |
+        echo $PWD
+        ls
+
     - name: Run Docker container and echo command
       run: |
         docker pull cordmaur/merge-downloader:v1
-        docker run cordmaur/merge-downloader:v1 /bin/sh -c "echo 'Hello, World!'"
+        docker run cordmaur/merge-downloader:v1 /bin/sh ls
