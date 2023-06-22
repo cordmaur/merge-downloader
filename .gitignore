@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .vscode/
-tests/data/
+# tests/data/
 tmp/
 *.DS_Store
 config.ini
