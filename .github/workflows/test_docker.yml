@@ -23,6 +23,6 @@ jobs:
     - name: Run Docker container and echo command
       run: |
         docker pull cordmaur/merge-downloader:v1
-        docker run cordmaur/merge-downloader:v1 /bin/sh -c "ls"
-        docker run -v $PWD:/app -w /app cordmaur/merge-downloader:v1 pytest
+        docker-compose -f run_tests.yml run --rm mycontainer
+        
         
