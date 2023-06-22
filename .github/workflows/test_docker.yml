@@ -24,3 +24,5 @@ jobs:
       run: |
         docker pull cordmaur/merge-downloader:v1
         docker run cordmaur/merge-downloader:v1 /bin/sh -c "ls"
+        docker run -v $PWD:/app -w /app cordmaur/merge-downloader:v1 pytest
+        
