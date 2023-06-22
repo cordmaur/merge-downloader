@@ -1,0 +1,20 @@
+name: Simple CI Workflow
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  echo-command:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v3
+
+    - name: Run Docker container and echo command
+      run: |
+        docker pull cordmaur/merge-downloader:v1
+        docker run cordmaur/merge-downloader:v1 /bin/sh -c "echo 'Hello, World!'"
