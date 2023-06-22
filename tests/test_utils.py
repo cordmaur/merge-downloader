@@ -44,7 +44,7 @@ class TestFTPUtil:
         remote_file = (
             fixture_data["DailyMERGEPath"] + "/" + fixture_data["DownloadTestFile"]
         )
-        local_folder = "./tmp/"
+        local_folder = "./tests/data/"
         local_path = ftp.download_ftp_file(remote_file, local_folder)
         assert isinstance(local_path, Path)
         assert local_path.name == fixture_data["DownloadTestFile"]
