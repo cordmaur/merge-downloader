@@ -1,7 +1,7 @@
 """Test the DateProcessor class"""
 from datetime import datetime
 
-from raindownloader.utils import DateFrequency, DateProcessor
+from mergedownloader.utils import DateFrequency, DateProcessor
 
 
 class TestDateProcessor:

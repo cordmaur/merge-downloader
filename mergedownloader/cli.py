@@ -7,9 +7,9 @@ from pathlib import Path
 import geopandas as gpd
 import xarray as xr
 
-from raindownloader.inpeparser import INPEParsers, INPETypes
-from raindownloader.downloader import Downloader
-from raindownloader.utils import DateProcessor, GISUtil, ChartUtil
+from mergedownloader.inpeparser import INPEParsers, INPETypes
+from mergedownloader.downloader import Downloader
+from mergedownloader.utils import DateProcessor, GISUtil, ChartUtil
 
 
 def reset(_):

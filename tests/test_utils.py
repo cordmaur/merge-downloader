@@ -6,8 +6,8 @@ from datetime import datetime
 from socket import gaierror
 import ftplib
 import pytest
-from raindownloader.utils import FTPUtil, OSUtil
-from raindownloader.inpeparser import INPEParsers
+from mergedownloader.utils import FTPUtil, OSUtil
+from mergedownloader.inpeparser import INPEParsers
 
 
 class TestFTPUtil:

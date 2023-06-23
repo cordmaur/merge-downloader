@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 from unittest.mock import MagicMock
-from raindownloader.parser import BaseParser, DateFrequency
+from mergedownloader.parser import BaseParser, DateFrequency
 
 
 class TestBaseParser:

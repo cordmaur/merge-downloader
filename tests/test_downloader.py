@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pytest
 
-from raindownloader.downloader import Downloader
-from raindownloader.inpeparser import INPEParsers, INPETypes
-from raindownloader.utils import GISUtil
+from mergedownloader.downloader import Downloader
+from mergedownloader.inpeparser import INPEParsers, INPETypes
+from mergedownloader.utils import GISUtil
 
 
 class TestDownloader:

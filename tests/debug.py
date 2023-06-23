@@ -3,13 +3,13 @@ from pathlib import Path
 import geopandas as gpd
 import contextily as cx
 
-from raindownloader.inpe import INPE
-from raindownloader.downloader import Downloader
-from raindownloader.utils import FileType
+from mergedownloader.inpe import INPE
+from mergedownloader.downloader import Downloader
+from mergedownloader.utils import FileType
 from rainreporter.reporter import RainReporter
 
 import rasterio as rio
-from raindownloader.utils import GISUtil
+from mergedownloader.utils import GISUtil
 
 reporter = RainReporter(
     server=INPE.FTPurl, remote_folder=INPE.DailyMERGEroot, download_folder="./tmp"
