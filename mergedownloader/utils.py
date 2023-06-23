@@ -4,6 +4,7 @@ Module with several utils used in raindownloader INPEraindownloader package
 import os
 import io
 import subprocess
+import socket
 import ftplib
 from pathlib import Path
 from typing import Union, List, Optional, Tuple
@@ -179,9 +180,13 @@ class FTPUtil:
                 ftp.sendcmd("TYPE I")
                 return ftp
 
-            except Exception as error:  # pylint: disable=broad-except
+            except socket.gaierror as e:
+                print(f"Caught an error: {type(e)}-{e}")
+                raise
+
+            except Exception as e:  # pylint: disable=broad-except
                 msg = f"Attempt {attempt + 1} to connect failed. "
-                msg += f"Exception {type(error)}: {error}"
+                msg += f"Exception {type(e)}: {e}"
 
                 if logger is not None:
                     logger.error(msg)

@@ -32,7 +32,7 @@ class TestDownloader:
         local_folder="./tests/data",
     )
 
-    @patch("raindownloader.downloader.FTPUtil")
+    @patch("mergedownloader.downloader.FTPUtil")
     def test_init(self, _):
         """Test Downloader initialization"""
         # create the instance
