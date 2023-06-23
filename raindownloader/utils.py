@@ -168,13 +168,27 @@ class FTPUtil:
         self.logger = logging.getLogger(self.__class__.__qualname__)
 
     @staticmethod
-    def open_connection(server: str) -> ftplib.FTP:
+    def open_connection(
+        server: str, retrials: int = 5, logger: Optional[logging.Logger] = None
+    ) -> ftplib.FTP:
         """Open an ftp connection and return an FTP instance"""
-        ftp = ftplib.FTP(server)
-        ftp.login()
-        ftp.sendcmd("TYPE I")
+        for attempt in range(retrials):
+            try:
+                ftp = ftplib.FTP(server)
+                ftp.login()
+                ftp.sendcmd("TYPE I")
+                return ftp
 
-        return ftp
+            except Exception as error:  # pylint: disable=broad-except
+                msg = f"Attempt {attempt + 1} to connect failed. "
+                msg += f"Exception {type(error)}: {error}"
+
+                if logger is not None:
+                    logger.error(msg)
+                else:
+                    print(msg)
+
+        raise Exception(f"Connection to {server} could not be estabilished")
 
     @property
     def is_connected(self) -> bool:
@@ -207,10 +221,11 @@ class FTPUtil:
         remote_file: str,
         local_folder: Union[str, Path],
         alt_server: Optional[str] = None,
+        retrials: int = 5,
     ) -> Path:
         """Download an ftp file preserving filename and timestamps"""
 
-        # get a valid connection
+        # # get a valid connection
         ftp = self.get_connection(alt_server=alt_server)
 
         # get the filename and set the target path
@@ -218,8 +233,20 @@ class FTPUtil:
         local_path = Path(local_folder) / filename
 
         # Retrieve the file from the ftp
-        with open(local_path, "wb") as local_file:
-            ftp.retrbinary("RETR " + remote_file, local_file.write)
+        for attempt in range(retrials):
+            try:
+                with open(local_path, "wb") as local_file:
+                    ftp.retrbinary("RETR " + remote_file, local_file.write)
+
+                break
+
+            except Exception as error:  # pylint: disable=broad-except
+                msg = f"Attempt {attempt + 1} failed with error "
+                msg += f"{type(error)}: {error}"
+                self.logger.error(msg)
+
+                self.logger.error("Opening a new connection")
+                ftp = self.get_connection(alt_server=alt_server)
 
         # once downloaded, retrieve the remote time, correct the timezone and save it
         remote_time_str = ftp.sendcmd("MDTM " + remote_file)
@@ -227,6 +254,9 @@ class FTPUtil:
 
         timestamp = remote_time.timestamp()
         os.utime(local_path, (timestamp, timestamp))
+
+        # close this connection
+        # ftp.close()
 
         return local_path
 
