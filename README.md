@@ -122,29 +122,33 @@ Similarly to `download`, the `series` command requires the flags `-d` and `-t` f
 
 For example, in the following code we compute the monthly rain occurred in 2022 in the Amazonas Brazlilian state and output it to a file named `amazon.csv` (the sample `.geojson` files are located inside the `data/` folder of the project.
 
+```
+root@c272deddb0f1:/workspaces/merge-downloader# merge-downloader series -d 2022-01 2022-12 -t MONTHLY_ACCUM_YEARLY -s ./data/amazon.geojson -f tmp/amazon.csv --anim --chart
+Downloading INPETypes.MONTHLY_ACCUM_YEARLY series for range: ['26-01-2022', '26-12-2022']
+Cutting raster to: data/amazon.geojson
+Coverting shp CRS to EPSG:4326
+Series exported to: tmp/amazon.csv
+Creating bar chart: tmp/amazon.png
+Creating animation file: tmp/amazon.gif
+Appending: 2022-01-01T12:00:00.000000000
+Appending: 2022-02-01T12:00:00.000000000
+Appending: 2022-03-01T12:00:00.000000000
+Appending: 2022-04-01T12:00:00.000000000
+Appending: 2022-05-01T12:00:00.000000000
+Appending: 2022-06-01T12:00:00.000000000
+Appending: 2022-07-01T12:00:00.000000000
+Appending: 2022-08-01T12:00:00.000000000
+Appending: 2022-09-01T12:00:00.000000000
+Appending: 2022-10-01T12:00:00.000000000
+Appending: 2022-11-01T12:00:00.000000000
+Appending: 2022-12-01T12:00:00.000000000
+```
 
+The series (`.csv`) and the chart (`.png`) can be seen in the following picture.
+![image](https://github.com/cordmaur/merge-downloader/assets/19617404/e49dffdf-6cfc-4807-b747-8b15e0ddfe68)
 
+# Usage from Jupyter
+To use the package from a Jupyter or a python script, you can refer to the notebooks available in the `nbs/` folder. 
 
-
-Doing: 
-* Separate downloader from reporter
-* Chuva anual - 1o Out/30 Sep - Últimos 10 anos
-
-
-
-TODO List: 
-* Add more info in the tabular side of the report -> ok
-* Make the report with the anomalies
-* Refactor the code
-* Rewrite the tests
-* Write console activation
-* Automate report generation for several basins at once
-* Add reference layer -> ok
-
-* Depois: Acumular os valores numéricos dos períodos seco e chuvoso 
-* 2 anos de gráfico
-* Bacias incrementais
-* Incrementais - Reservatórios - Quinzenal???
-* Retirar a média de chuva no diário 
-* Diário manter os últimos 30 dias
-* Furnas ou Serra da Mesa: identificar construções no reservatório 
+# References
+Rozante, José Roberto, Demerval Soares Moreira, Luis Gustavo G. De Goncalves, and Daniel A. Vila. “Combining TRMM and Surface Observations of Precipitation: Technique and Validation over South America.” Weather and Forecasting 25, no. 3 (June 1, 2010): 885–94. https://doi.org/10.1175/2010WAF2222325.1.
