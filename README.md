@@ -117,7 +117,13 @@ The following files are available:
 
 ## Downloading Series
 When creating a time-series, the `merge-downloader` will automatically reduce the X (i.e., longitude) and Y (i.e., latitude) axes through the `mean` operator to have the value alongside the `time` dimension. If a geometry is given (e.g., shapefile or geojson), the computation will be performed within the given geometries, otherwise the values will be computed for the entire raster. 
-For example, in the following code we compute the monthly rain occurred in 2022 in the 
+
+Similarly to `download`, the `series` command requires the flags `-d` and `-t` for dates and data type, as well as the optional `-s` for the geometry and `-f` to specify the output file. Besides, one can also use the flags `--anim` and `--chart` to output a simple `.png` chart and an animated GIF automatically. 
+
+For example, in the following code we compute the monthly rain occurred in 2022 in the Amazonas Brazlilian state and output it to a file named `amazon.csv` (the sample `.geojson` files are located inside the `data/` folder of the project.
+
+
+
 
 
 Doing: 
