@@ -10,15 +10,15 @@ setup(
     author="Mauricio Cordeiro",
     author_email="cordmaur@gmail.com",
     packages=find_packages(),
-    entry_points={"console_scripts": ["merge-downloader = mergedownloader.cli:main"]}
-    # install_requires=[
-    #     "geopandas",
-    #     "xarray",
-    #     "rasterio",
-    #     "rioxarray",
-    #     "cfgrib",
-    #     "contextily",
-    #     "ecCodes",
-    #     "ecmwflibs",
-    # ],
+    entry_points={"console_scripts": ["merge-downloader = mergedownloader.cli:main"]},
+    install_requires=[
+        "ecmwflibs",
+        "ecCodes==1.3.1",
+        "cfgrib",
+        "geopandas",
+        "xarray",
+        "rasterio",
+        "rioxarray",
+        "contextily",
+    ],
 )
