@@ -7,9 +7,14 @@
 		"dockerfile": "Dockerfile"
 	},
 	"mounts": [
-		"source=/Users/cordmaur/Library/CloudStorage/OneDrive-AgênciaNacionaldeÁguas/Trabalho/SOE/COVEC/Bases,target=/workspaces/bases,type=bind",
-		"source=/Users/cordmaur/Projects/RainReporter,target=/workspaces/RainReporter,type=bind",
-		"source=/Users/cordmaur/Library/CloudStorage/OneDrive-AgênciaNacionaldeÁguas/Trabalho/SOE/COVEC/RelatoriosChuva/reports_folder,target=/workspaces/reports_folder,type=bind",
+		// if running iMac
+		// "source=/Users/cordmaur/Library/CloudStorage/OneDrive-AgênciaNacionaldeÁguas/Trabalho/SOE/COVEC/Bases,target=/workspaces/bases,type=bind",
+		// "source=/Users/cordmaur/Projects/RainReporter,target=/workspaces/RainReporter,type=bind",
+		// "source=/Users/cordmaur/Library/CloudStorage/OneDrive-AgênciaNacionaldeÁguas/Trabalho/SOE/COVEC/RelatoriosChuva/reports_folder,target=/workspaces/reports_folder,type=bind",
+
+		// if running Windows
+		"source=D:/OneDrive/Trabalho/SOE/COVEC/Bases,target=/workspaces/bases,type=bind",
+		"source=D:/OneDrive/Trabalho/SOE/COVEC/RelatoriosChuva/reports_folder,target=/workspaces/reports_folder,type=bind"
 	],
 	"runArgs": [
 		"--memory=4g",

@@ -4,11 +4,10 @@ Module with several utils used in raindownloader INPEraindownloader package
 import os
 import io
 import subprocess
-import socket
+from urllib import request
 import ftplib
 from pathlib import Path
 from typing import Union, List, Optional, Tuple
-from enum import Enum
 import logging
 
 # from abc import ABC, abstractmethod
@@ -163,8 +162,14 @@ class DateProcessor:
 class FTPUtil:
     """FTP helper class to download file preserving timestamp and to get file info, among others"""
 
-    def __init__(self, server: str) -> None:
-        self.ftp = FTPUtil.open_connection(server)
+    def __init__(self, server: str, wget: bool = False) -> None:
+        self.server = server
+        if wget:
+            self.ftp = None
+            self.wget = True
+        else:
+            self.wget = False
+            self.ftp = FTPUtil.open_connection(server)
 
         self.logger = logging.getLogger(self.__class__.__qualname__)
 
@@ -180,35 +185,34 @@ class FTPUtil:
                 ftp.sendcmd("TYPE I")
                 return ftp
 
-            except socket.gaierror as e:
-                print(f"Caught an error: {type(e)}-{e}")
-                raise
-
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as error:  # pylint: disable=broad-except
                 msg = f"Attempt {attempt + 1} to connect failed. "
-                msg += f"Exception {type(e)}: {e}"
+                msg += f"Exception {type(error)}: {error}"
 
                 if logger is not None:
                     logger.error(msg)
                 else:
                     print(msg)
 
-        raise Exception(f"Connection to {server} could not be estabilished")
+        raise ConnectionError(f"Connection to {server} could not be estabilished")
 
     @property
     def is_connected(self) -> bool:
         """Check if the connection is open"""
 
-        try:
-            # test if the ftp is still responding
-            self.ftp.pwd()
+        if self.ftp is not None:
+            try:
+                # test if the ftp is still responding
+                self.ftp.pwd()
+                return True
+
+            except Exception:  # pylint:disable=broad-except
+                # otherwise, return False
+                return False
+        else:
             return True
 
-        except Exception:  # pylint:disable=broad-except
-            # otherwise, return False
-            return False
-
-    def get_connection(self, alt_server: Optional[str] = None) -> ftplib.FTP:
+    def get_connection(self, alt_server: Optional[str] = None) -> Optional[ftplib.FTP]:
         """
         Return a connection. If current connection is closed, connect again.
         If an alternative server is provided, return the alternative server.
@@ -217,7 +221,7 @@ class FTPUtil:
             return FTPUtil.open_connection(alt_server)
 
         if not self.is_connected:
-            self.ftp = FTPUtil.open_connection(self.ftp.host)
+            self.ftp = FTPUtil.open_connection(self.server)
 
         return self.ftp
 
@@ -230,38 +234,63 @@ class FTPUtil:
     ) -> Path:
         """Download an ftp file preserving filename and timestamps"""
 
-        # # get a valid connection
-        ftp = self.get_connection(alt_server=alt_server)
-
         # get the filename and set the target path
         filename = os.path.basename(remote_file)
         local_path = Path(local_folder) / filename
 
-        # Retrieve the file from the ftp
-        for attempt in range(retrials):
-            try:
-                with open(local_path, "wb") as local_file:
-                    ftp.retrbinary("RETR " + remote_file, local_file.write)
+        if self.wget:
+            prefix = "http://" + self.server
+            remote_file = prefix + remote_file
 
-                break
+            for attempt in range(retrials):
+                try:
+                    request.urlretrieve(remote_file, local_path)
 
-            except Exception as error:  # pylint: disable=broad-except
-                msg = f"Attempt {attempt + 1} failed with error "
-                msg += f"{type(error)}: {error}"
-                self.logger.error(msg)
+                    _ = xr.open_dataset(local_path)
 
-                self.logger.error("Opening a new connection")
-                ftp = self.get_connection(alt_server=alt_server)
+                    break
 
-        # once downloaded, retrieve the remote time, correct the timezone and save it
-        remote_time_str = ftp.sendcmd("MDTM " + remote_file)
-        remote_time = parser.parse(remote_time_str[4:])
+                except EOFError as error:
+                    self.logger.error(f"File {filename} was not downloaded correctly.")
 
-        timestamp = remote_time.timestamp()
-        os.utime(local_path, (timestamp, timestamp))
+                except Exception as error:
+                    self.logger.error(error)
 
-        # close this connection
-        # ftp.close()
+                finally:
+                    if attempt == retrials - 1:
+                        raise ConnectionError(f"Not possible to download {remote_file}")
+                    else:
+                        self.logger.error(f"Retrying - Attempt={attempt}")
+
+        else:
+            # # get a valid connection
+            ftp = self.get_connection(alt_server=alt_server)
+
+            # Retrieve the file from the ftp
+            for attempt in range(retrials):
+                try:
+                    with open(local_path, "wb") as local_file:
+                        ftp.retrbinary("RETR " + remote_file, local_file.write)
+
+                    break
+
+                except Exception as error:  # pylint: disable=broad-except
+                    msg = f"Attempt {attempt + 1} failed with error "
+                    msg += f"{type(error)}: {error}"
+                    self.logger.error(msg)
+
+                    self.logger.error("Opening a new connection")
+                    ftp = self.get_connection(alt_server=alt_server)
+
+            # once downloaded, retrieve the remote time, correct the timezone and save it
+            # remote_time_str = ftp.sendcmd("MDTM " + remote_file)
+            # remote_time = parser.parse(remote_time_str[4:])
+
+            # timestamp = remote_time.timestamp()
+            # os.utime(local_path, (timestamp, timestamp))
+
+            # close this connection
+            # ftp.close()
 
         return local_path
 
