@@ -49,7 +49,7 @@ def open_config() -> ConfigParser:
     """Return the configuration"""
     file = config_file()
     if not file.exists():
-        raise FileNotFoundError((f"Config file '{file}' not found"))
+        raise FileNotFoundError((f"Config file '{file}' not found. Run merge-downloader init first!"))
 
     config = ConfigParser()
     config.read(config_file())
@@ -283,5 +283,5 @@ def main():
         parser.print_help()
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()

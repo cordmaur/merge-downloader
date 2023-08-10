@@ -146,15 +146,14 @@ class BaseParser:
         date = DateProcessor.parse_date(date)
 
         if self.foldername_fn:
-            return os.path.join(self.root, self.foldername_fn(date, **kwargs))
+            return '/'.join([self.root, self.foldername_fn(date, **kwargs)])
+            # return os.path.join(self.root, self.foldername_fn(date, **kwargs))
         else:
             return self.root
 
     def remote_target(self, date: Union[str, datetime], **kwargs) -> str:
         """Target is composed by root / folder / filename"""
-        return os.path.join(
-            self.remote_path(date, **kwargs), self.filename(date, **kwargs)
-        )
+        return '/'.join([self.remote_path(date, **kwargs), self.filename(date, **kwargs)])
 
     def dates_range(
         self, start_date: Union[str, datetime], end_date: Union[str, datetime]

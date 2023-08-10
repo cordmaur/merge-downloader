@@ -27,6 +27,7 @@ class Downloader:
         local_folder: Union[str, Path],
         avoid_update: bool = True,
         log_level: int = logging.INFO,
+        wget: bool = True,
     ) -> None:
         """
         :param server: FTP server to connect to (should accept Anonymous)
@@ -41,7 +42,7 @@ class Downloader:
         """
 
         # store initialization variables
-        self.ftp = FTPUtil(server)
+        self.ftp = FTPUtil(server, wget)
         self.parsers = parsers
         self.local_folder = Path(local_folder)
         self.avoid_update = avoid_update
