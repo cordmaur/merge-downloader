@@ -6,6 +6,7 @@ import io
 import subprocess
 from urllib import request
 import ftplib
+import urllib
 from pathlib import Path
 from typing import Union, List, Optional, Tuple
 import logging
@@ -318,19 +319,37 @@ class FTPUtil:
 
     def file_exists(self, remote_file: str) -> bool:
         """Docstring"""
-        ftp = self.get_connection()
+        self.logger.debug(f"Checking if file exists: {remote_file}")
 
-        try:
-            ftp.size(remote_file)
+        # first, we have the old solution, that uses FTPlib
+        if not self.wget:
+            ftp = self.get_connection()
 
-        except ftplib.error_perm as error:
-            if str(error).startswith("550"):
-                pass
-            else:
-                print(f"Error checking file existence: {error}")
-            return False
+            try:
+                ftp.size(remote_file)
 
-        return True
+            except ftplib.error_perm as error:
+                if str(error).startswith("550"):
+                    pass
+                else:
+                    print(f"Error checking file existence: {error}")
+                return False
+
+            return True
+        # Then, we have the new solution that works entirely with urllib
+        else:
+            prefix = "http://" + self.server
+            remote_file = prefix + remote_file
+            url_request = request.Request(remote_file, method="HEAD")
+
+            try:
+                request.urlopen(url_request)
+                return True
+            except urllib.error.HTTPError:
+                return False
+
+            except Exception as error:
+                return False
 
     def file_changed(self, remote_file: str, file_info: dict) -> bool:
         """
