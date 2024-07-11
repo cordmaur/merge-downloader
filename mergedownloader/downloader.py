@@ -356,7 +356,7 @@ class Downloader:
             for date in dates
         ]
 
-        cube = xr.concat(data_arrays, dim=dim)  # type: ignore
+        cube = xr.concat(data_arrays, dim=dim, coords="minimal", compat="override")  # type: ignore
 
         return cube
 

@@ -1,10 +1,12 @@
 """
 Module with several utils used in raindownloader INPEraindownloader package
 """
+
 import os
 import io
 import subprocess
 from urllib import request
+import ssl
 import ftplib
 import urllib
 from pathlib import Path
@@ -165,6 +167,8 @@ class FTPUtil:
 
     def __init__(self, server: str, wget: bool = False) -> None:
         self.server = server
+        self.context = ssl._create_unverified_context()  # pylint: disable=W0212
+
         if wget:
             self.ftp = None
             self.wget = True
@@ -245,7 +249,14 @@ class FTPUtil:
 
             for attempt in range(retrials):
                 try:
-                    request.urlretrieve(remote_file, local_path)
+                    if attempt > 0:
+                        self.logger.error(f"Retrying - Attempt={attempt}")
+
+                    with urllib.request.urlopen(
+                        remote_file, context=self.context
+                    ) as response, open(local_path, "wb") as out_file:
+                        data = response.read()
+                        out_file.write(data)
 
                     _ = xr.open_dataset(local_path)
 
@@ -260,8 +271,6 @@ class FTPUtil:
                 finally:
                     if attempt == retrials - 1:
                         raise ConnectionError(f"Not possible to download {remote_file}")
-                    else:
-                        self.logger.error(f"Retrying - Attempt={attempt}")
 
         else:
             # # get a valid connection
@@ -343,7 +352,7 @@ class FTPUtil:
             url_request = request.Request(remote_file, method="HEAD")
 
             try:
-                request.urlopen(url_request)
+                request.urlopen(url_request, context=self.context)
                 return True
             except urllib.error.HTTPError:
                 return False
