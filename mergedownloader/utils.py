@@ -323,7 +323,10 @@ class FTPUtil:
         return {"datetime": remote_time, "size": size}
 
     def __repr__(self) -> str:
-        output = f"FTP {'' if self.is_connected else 'Not '}connected to server {self.ftp.host}"
+        if self.wget:
+            output = f"Using wget through HTTP on: {self.server}"
+        else:
+            output = f"FTP {'' if self.is_connected else 'Not '}connected to server {self.ftp.host}"
         return output
 
     def file_exists(self, remote_file: str) -> bool:
