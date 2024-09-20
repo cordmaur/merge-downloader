@@ -2,13 +2,10 @@
 Module with several utils used in raindownloader INPEraindownloader package
 """
 
-import os
 import io
 import subprocess
-from urllib import request
-import ssl
-import ftplib
-import urllib
+from enum import Enum
+
 from pathlib import Path
 from typing import Union, List, Optional, Tuple
 import logging
@@ -31,7 +28,22 @@ import xarray as xr
 import rioxarray as xrio
 import geopandas as gpd
 
-from .enums import INPETypes, DateFrequency, FileType
+
+class DateFrequency(Enum):
+    """Specifies date frequency for the products"""
+
+    DAILY = {"days": 1}
+    MONTHLY = {"months": 1}
+    YEARLY = {"years": 1}
+    HOURLY = {"hours": 1}
+
+
+class FileType(Enum):
+    """Specifies the file types for downloading"""
+
+    GRIB = ".grib2"
+    GEOTIFF = ".tif"
+    NETCDF = ".nc"
 
 
 class DateProcessor:
@@ -162,254 +174,40 @@ class DateProcessor:
         return now + relativedelta(hour=0, minute=0, second=0, microsecond=0)
 
 
-class FTPUtil:
-    """FTP helper class to download file preserving timestamp and to get file info, among others"""
+# class ChartUtil:
+#     @staticmethod
+#     def save_bar(series: pd.Series, datatype: INPETypes, filename: str):
+#         """Save a bar chart to a file"""
 
-    def __init__(self, server: str, wget: bool = False) -> None:
-        self.server = server
-        self.context = ssl._create_unverified_context()  # pylint: disable=W0212
+#         # check if the folder exists
+#         file = Path(filename)
 
-        if wget:
-            self.ftp = None
-            self.wget = True
-        else:
-            self.wget = False
-            self.ftp = FTPUtil.open_connection(server)
+#         if not file.parent.exists():
+#             raise FileNotFoundError(
+#                 f"Folder '{file.parent.absolute()}' does not exist."
+#             )
 
-        self.logger = logging.getLogger(self.__class__.__qualname__)
+#         axes = ChartUtil.bar_chart(series=series, datatype=datatype)
 
-    @staticmethod
-    def open_connection(
-        server: str, retrials: int = 5, logger: Optional[logging.Logger] = None
-    ) -> ftplib.FTP:
-        """Open an ftp connection and return an FTP instance"""
-        for attempt in range(retrials):
-            try:
-                ftp = ftplib.FTP(server)
-                ftp.login()
-                ftp.sendcmd("TYPE I")
-                return ftp
+#         axes.figure.subplots_adjust(bottom=0.3)
+#         axes.figure.savefig(file.with_suffix(".png").as_posix())
 
-            except Exception as error:  # pylint: disable=broad-except
-                msg = f"Attempt {attempt + 1} to connect failed. "
-                msg += f"Exception {type(error)}: {error}"
+#     @staticmethod
+#     def bar_chart(series: pd.Series, datatype: INPETypes) -> plt.Axes:
+#         """Create a bar chart from a given series"""
 
-                if logger is not None:
-                    logger.error(msg)
-                else:
-                    print(msg)
+#         # plot a graph
+#         _, axes = plt.subplots(num=2)
+#         axes.bar(x=series.index.strftime("%d-%m-%Y"), height=series.values)  # type: ignore
 
-        raise ConnectionError(f"Connection to {server} could not be estabilished")
+#         labels = axes.get_xticks()
+#         axes.xaxis.set_major_locator(plt.FixedLocator(labels))  # type: ignore
+#         axes.set_xticklabels(labels, rotation=90)
 
-    @property
-    def is_connected(self) -> bool:
-        """Check if the connection is open"""
+#         axes.set_ylabel("Precipitaion (mm)")
+#         axes.set_title(datatype.value["name"])
 
-        if self.ftp is not None:
-            try:
-                # test if the ftp is still responding
-                self.ftp.pwd()
-                return True
-
-            except Exception:  # pylint:disable=broad-except
-                # otherwise, return False
-                return False
-        else:
-            return True
-
-    def get_connection(self, alt_server: Optional[str] = None) -> Optional[ftplib.FTP]:
-        """
-        Return a connection. If current connection is closed, connect again.
-        If an alternative server is provided, return the alternative server.
-        """
-        if alt_server is not None:
-            return FTPUtil.open_connection(alt_server)
-
-        if not self.is_connected:
-            self.ftp = FTPUtil.open_connection(self.server)
-
-        return self.ftp
-
-    def download_ftp_file(
-        self,
-        remote_file: str,
-        local_folder: Union[str, Path],
-        alt_server: Optional[str] = None,
-        retrials: int = 5,
-    ) -> Path:
-        """Download an ftp file preserving filename and timestamps"""
-
-        # get the filename and set the target path
-        filename = os.path.basename(remote_file)
-        local_path = Path(local_folder) / filename
-
-        if self.wget:
-            prefix = "http://" + self.server
-            remote_file = prefix + remote_file
-
-            for attempt in range(retrials):
-                try:
-                    if attempt > 0:
-                        self.logger.error(f"Retrying - Attempt={attempt}")
-
-                    with urllib.request.urlopen(
-                        remote_file, context=self.context
-                    ) as response, open(local_path, "wb") as out_file:
-                        data = response.read()
-                        out_file.write(data)
-
-                    _ = xr.open_dataset(local_path)
-
-                    break
-
-                except EOFError as error:
-                    self.logger.error(f"File {filename} was not downloaded correctly.")
-
-                except Exception as error:
-                    self.logger.error(error)
-
-                finally:
-                    if attempt == retrials - 1:
-                        raise ConnectionError(f"Not possible to download {remote_file}")
-
-        else:
-            # # get a valid connection
-            ftp = self.get_connection(alt_server=alt_server)
-
-            # Retrieve the file from the ftp
-            for attempt in range(retrials):
-                try:
-                    with open(local_path, "wb") as local_file:
-                        ftp.retrbinary("RETR " + remote_file, local_file.write)
-
-                    break
-
-                except Exception as error:  # pylint: disable=broad-except
-                    msg = f"Attempt {attempt + 1} failed with error "
-                    msg += f"{type(error)}: {error}"
-                    self.logger.error(msg)
-
-                    self.logger.error("Opening a new connection")
-                    ftp = self.get_connection(alt_server=alt_server)
-
-            # once downloaded, retrieve the remote time, correct the timezone and save it
-            # remote_time_str = ftp.sendcmd("MDTM " + remote_file)
-            # remote_time = parser.parse(remote_time_str[4:])
-
-            # timestamp = remote_time.timestamp()
-            # os.utime(local_path, (timestamp, timestamp))
-
-            # close this connection
-            # ftp.close()
-
-        return local_path
-
-    def get_ftp_file_info(
-        self,
-        remote_file: str,
-        alt_server: Optional[str] = None,
-    ) -> dict:
-        """Get modification time and size of a specific file in the FTP server"""
-
-        # get a valid connection
-        ftp = self.get_connection(alt_server=alt_server)
-
-        remote_time_str = ftp.sendcmd("MDTM " + remote_file)
-        remote_time = parser.parse(remote_time_str[4:])
-
-        # correct the timestamp
-        size = ftp.size(remote_file)
-
-        return {"datetime": remote_time, "size": size}
-
-    def __repr__(self) -> str:
-        if self.wget:
-            output = f"Using wget through HTTP on: {self.server}"
-        else:
-            output = f"FTP {'' if self.is_connected else 'Not '}connected to server {self.ftp.host}"
-        return output
-
-    def file_exists(self, remote_file: str) -> bool:
-        """Docstring"""
-        self.logger.debug(f"Checking if file exists: {remote_file}")
-
-        # first, we have the old solution, that uses FTPlib
-        if not self.wget:
-            ftp = self.get_connection()
-
-            try:
-                ftp.size(remote_file)
-
-            except ftplib.error_perm as error:
-                if str(error).startswith("550"):
-                    pass
-                else:
-                    print(f"Error checking file existence: {error}")
-                return False
-
-            return True
-        # Then, we have the new solution that works entirely with urllib
-        else:
-            prefix = "http://" + self.server
-            remote_file = prefix + remote_file
-            url_request = request.Request(remote_file, method="HEAD")
-
-            try:
-                request.urlopen(url_request, context=self.context)
-                return True
-            except urllib.error.HTTPError:
-                return False
-
-            except Exception as error:
-                return False
-
-    def file_changed(self, remote_file: str, file_info: dict) -> bool:
-        """
-        Check if the remote file has changed based in the size and datetime values
-        within file_info dict
-        """
-
-        remote_info = self.get_ftp_file_info(remote_file=remote_file)
-
-        return (remote_info["size"] == file_info["size"]) and (
-            remote_info["datetime"] == file_info["datetime"]
-        )
-
-
-class ChartUtil:
-    @staticmethod
-    def save_bar(series: pd.Series, datatype: INPETypes, filename: str):
-        """Save a bar chart to a file"""
-
-        # check if the folder exists
-        file = Path(filename)
-
-        if not file.parent.exists():
-            raise FileNotFoundError(
-                f"Folder '{file.parent.absolute()}' does not exist."
-            )
-
-        axes = ChartUtil.bar_chart(series=series, datatype=datatype)
-
-        axes.figure.subplots_adjust(bottom=0.3)
-        axes.figure.savefig(file.with_suffix(".png").as_posix())
-
-    @staticmethod
-    def bar_chart(series: pd.Series, datatype: INPETypes) -> plt.Axes:
-        """Create a bar chart from a given series"""
-
-        # plot a graph
-        _, axes = plt.subplots(num=2)
-        axes.bar(x=series.index.strftime("%d-%m-%Y"), height=series.values)  # type: ignore
-
-        labels = axes.get_xticks()
-        axes.xaxis.set_major_locator(plt.FixedLocator(labels))  # type: ignore
-        axes.set_xticklabels(labels, rotation=90)
-
-        axes.set_ylabel("Precipitaion (mm)")
-        axes.set_title(datatype.value["name"])
-
-        return axes
+#         return axes
 
 
 class GISUtil:
