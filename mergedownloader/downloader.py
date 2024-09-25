@@ -4,15 +4,14 @@ Module with specialized classes to understand the INPE FTP Structure
 
 from pathlib import Path
 from enum import Enum
-from typing import Union, List, Callable, Iterable, Dict
+from typing import Union, List, Optional, Iterable, Dict
 from datetime import datetime
 import logging
 from logging import handlers
 
-import geopandas as gpd
 import xarray as xr
 
-from .parser import AbstractParser
+from .parser import AbstractParser, AbstractProcessor
 from .file_downloader import FileDownloader
 from .utils import DateProcessor
 
@@ -21,7 +20,9 @@ from .utils import DateProcessor
 
 
 class Downloader:
-    """Business logic to download files from a given structure"""
+    """
+    Business logic to download, open and combine the files from a given structure.
+    """
 
     def __init__(
         self,
@@ -96,6 +97,65 @@ class Downloader:
         )
         return file_handler
 
+    # -------------------- Private Functions --------------------
+    def _process_file(self, date: datetime, processor: AbstractProcessor, **kwargs):
+        """todo: write docstring"""
+
+        local_target = processor.local_target(
+            date=date, output=self._local_folder, **kwargs
+        )
+
+        # First, check with the processor if the file has to be created/updated
+        if not processor.must_update(
+            date=date, output_folder=self._local_folder, **kwargs
+        ):
+            return local_target
+
+        # If the file does not exists locally, let's start the processing
+        # Initially, let's get list of dependencies (if there are any)
+        dependencies = processor.inform_dependencies(date=date, **kwargs)
+
+        # get the dependencies
+        if dependencies is not None:
+            filled_dependencies = {}
+            for dtype, dates in dependencies.items():
+                files = []
+                for d in dates:
+                    arr = self.open_file(date=d, datatype=dtype, **kwargs)
+
+                    if arr is not None:
+                        files.append(arr)
+
+                filled_dependencies[dtype] = files
+
+        else:
+            filled_dependencies = None
+
+        # Now, let's process the file (it returns as a dataset)
+        dset = processor.create_file(
+            date=date, dependencies=filled_dependencies, **kwargs
+        )
+
+        # Then, let's create the file
+        self._logger.info("Creating file %s", local_target)
+        dset.to_netcdf(local_target)
+
+        return local_target
+
+    def _download_file(self, date: datetime, parser: AbstractParser, **kwargs):
+        """todo: write docstring"""
+
+        local_folder = parser.local_folder(
+            date=date, output_folder=self._local_folder, **kwargs
+        )
+
+        remote_target = parser.remote_target(date=date, **kwargs)
+
+        # download the file
+        return self._file_downloader.download_file(
+            remote_file=remote_target, local_folder=local_folder
+        )
+
     # -------------------- Utilities Functions --------------------
     def get_parser(self, datatype: Union[Enum, str]) -> AbstractParser:
         """
@@ -125,15 +185,15 @@ class Downloader:
         date = DateProcessor.parse_date(date)
         parser = self.get_parser(datatype=datatype)
 
-        remote_target = parser.remote_target(date=date, **kwargs)
-        local_folder = parser.local_folder(
-            date=date, output_folder=self._local_folder, **kwargs
-        )
+        self._logger.info("Getting file %s for %s", datatype, date)
 
-        # download the file
-        return self._file_downloader.download_file(
-            remote_file=remote_target, local_folder=local_folder
-        )
+        # If the parser is not a processor, just grab the target location and download the file
+        if not isinstance(parser, AbstractProcessor):
+            return self._download_file(date, parser, **kwargs)
+
+        # Otherwise, it its a "Processor" let's call the process_file function
+        else:
+            return self._process_file(date=date, processor=parser, **kwargs)
 
     def get_files(
         self,
@@ -190,374 +250,54 @@ class Downloader:
         Open the file, downloading it, if that's necessary
         """
         file = self.get_file(date=date, datatype=datatype, **kwargs)
-        ds = xr.open_dataset(file)
 
-        parser = self.get_parser(datatype=datatype)
-        if parser.post_proc is not None:
-            file = parser.post_proc(ds)
+        if file is not None:
+            ds = xr.open_dataset(file)
 
-        return ds[parser.constants["var"]]
+            parser = self.get_parser(datatype=datatype)
+            if parser.post_proc is not None:
+                ds = parser.post_proc(ds)
 
-    # -------------------- Download Functions --------------------
-    @staticmethod
-    def get_time_series(
-        cube: xr.DataArray,
-        shp: gpd.GeoDataFrame,
-        reducer: Callable,
-        keep_dim: str = "time",  # specify the dimension along with we will retrieve the TS
+            return ds[parser.constants["var"]]
+
+        return None
+
+    def create_cube_dates(
+        self,
+        dates: List[Union[str, datetime]],
+        datatype: Union[Enum, str],
+        dim_key: Optional[str] = "time",
+        **kwargs,
     ):
-        """Get a time series of values within the shape, given a reducer method"""
-        if cube.rio.crs != shp.crs:
-            print(f"Coverting shp CRS to {cube.rio.crs}")
-            shp = shp.to_crs(cube.rio.crs)  # type: ignore
+        """
+        Create a cube from a list of dates
+        """
+        data_arrays = []
+        for date in dates:
+            dset = self.open_file(date=date, datatype=datatype, **kwargs)
 
-        # clip to the desired area
-        area = cube.rio.clip(shp.geometry)
+            if dset is None:
+                self._logger.error("Could not open file %s, datatype, %s", date, datatype)
+            else:
+                data_arrays.append(dset)
 
-        # get the dimensions to be reduced
-        reduce_dims = list(cube.dims)
-        reduce_dims.remove(keep_dim)
+        cube = xr.concat(data_arrays, dim=dim_key, coords="minimal", compat="override")
+        return cube
 
-        series = reducer(area, dim=reduce_dims).to_series()
+    def create_cube(
+        self,
+        start_date: Union[str, datetime],
+        end_date: Union[str, datetime],
+        datatype: Union[Enum, str],
+        dim_key: Optional[str] = "time",
+        **kwargs,
+    ) -> xr.Dataset:
+        """
+        Create a cube from a range of files
+        """
+        parser = self.get_parser(datatype=datatype)
+        dates = parser.dates_range(start_date, end_date)
 
-        return series
-
-    # @property
-    # def data_types(self) -> List[Union[Enum, str]]:
-    #     """Return the data types available in the parsers"""
-    #     return [parse.datatype for parse in self.parsers]
-
-    # def is_downloaded(
-    #     self,
-    #     date_str: str,
-    #     # local_folder: Union[str, Path],
-    #     datatype: Union[InpeTypes, str],
-    # ):
-    #     """Return if the desired file is downloaded. Dispatch to the correct parser"""
-
-    #     self.logger.debug("Checking if %s/%s is downloaded", datatype, date_str)
-
-    #     parser = self.get_parser(datatype=datatype)
-    #     return parser.is_downloaded(
-    #         date=date_str,
-    #         local_folder=self.local_folder,
-    #     )
-
-    # def compare_files(
-    #     self,
-    #     date_str: str,
-    #     datatype: Union[InpeTypes, str],
-    # ) -> None:
-    #     """Compare remote and local files visually"""
-    #     remote_file = self.remote_file_path(date_str, datatype=datatype)
-    #     remote_info = self.ftp.get_ftp_file_info(remote_file=remote_file)
-
-    #     local_file = self.local_file_path(date_str, datatype=datatype)
-    #     local_info = OSUtil.get_local_file_info(local_file)
-
-    #     self.logger.debug("Comparing %s to %s", remote_file, local_file)
-
-    #     print(remote_info)
-    #     print(local_info)
-
-    # def get_parser(self, datatype: Union[Enum, str]) -> BaseParser:
-    #     """Get the correct parser for the specified datatype"""
-
-    #     for parser in self.parsers:
-    #         if parser.datatype == datatype:
-    #             return parser
-
-    #     raise ValueError(f"Parser not found for data type {datatype}")
-
-    # def remote_file_path(
-    #     self, date: Union[str, datetime], datatype: Union[Enum, str]
-    # ) -> str:
-    #     """Create the remote file path given a date"""
-    #     parser = self.get_parser(datatype=datatype)
-
-    #     return parser.remote_target(date=date)
-
-    # def remote_file_exists(
-    #     self, date: Union[str, datetime], datatype: Union[Enum, str]
-    # ) -> bool:
-    #     """Check if a remote file exists"""
-
-    #     remote_file = self.remote_file_path(date, datatype=datatype)
-    #     return self.ftp.file_exists(remote_file=remote_file)
-
-    # def local_file_exists(
-    #     self, date: Union[str, datetime], datatype: Union[Enum, str]
-    # ) -> bool:
-    #     """Verify if a specific local file exists"""
-    #     parser = self.get_parser(datatype=datatype)
-    #     local_target = parser.local_target(date=date, local_folder=self.local_folder)
-
-    #     return local_target.exists()
-
-    # def local_file_path(
-    #     self,
-    #     date: Union[str, datetime],
-    #     datatype: Union[Enum, str],
-    # ) -> Path:
-    #     """
-    #     Create the path for the local file, depending on the folder and file type.
-    #     It uses the filename function to derive the final filename.
-    #     """
-    #     parser = self.get_parser(datatype=datatype)
-    #     return parser.local_target(date=date, local_folder=self.local_folder)
-
-    # def files_range(
-    #     self, start_date_str: str, end_date_str: str, datatype: Union[InpeTypes, str]
-    # ) -> List[str]:
-    #     """Docstring"""
-    #     dates = self.get_parser(datatype).dates_range(
-    #         start_date=start_date_str, end_date=end_date_str
-    #     )
-    #     return [self.remote_file_path(date, datatype=datatype) for date in dates]
-
-    # def download_file(
-    #     self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
-    # ) -> Path:
-    #     """
-    #     Download a file from the FTP server to the a local folder. The filename and ftp location
-    #     folder filename will be obtained from the respective parsers.
-    #     """
-    #     parser = self.get_parser(datatype=datatype)
-    #     return parser.download_file(date=date, local_folder=self.local_folder, **kwargs)
-
-    # def get_file(
-    #     self,
-    #     date: Union[str, datetime],
-    #     datatype: Union[Enum, str],
-    #     force_download: bool = False,
-    #     **kwargs,
-    # ) -> Path:
-    #     """
-    #     Get a specific file. If it is not available locally, download it just in time.
-    #     If it is available locally and avoid_update is not True, check if the file has
-    #     changed in the server.
-    #     """
-    #     parser = self.get_parser(datatype=datatype)
-    #     return parser.get_file(
-    #         date=date,
-    #         local_folder=self.local_folder,
-    #         force_download=force_download,
-    #         **kwargs,
-    #     )
-
-    # def get_files(
-    #     self,
-    #     dates: Iterable[Union[str, datetime]],
-    #     datatype: Union[Enum, str],
-    #     force_download: bool = False,
-    #     **kwargs,
-    # ) -> List[Path]:
-    #     """
-    #     Download files from a list of dates and receives a list pointing to the files.
-    #     If there is a problem during the download of one file, a message error will be in the list.
-    #     """
-    #     parser = self.get_parser(datatype=datatype)
-    #     return parser.get_files(
-    #         dates=dates,
-    #         local_folder=self.local_folder,
-    #         force_download=force_download,
-    #         **kwargs,
-    #     )
-
-    # def get_range(
-    #     self,
-    #     start_date: str,
-    #     end_date: str,
-    #     datatype: Union[Enum, str],
-    #     force_download: bool = False,
-    #     **kwargs,
-    # ) -> List[Path]:
-    #     """
-    #     Download a range of files from start to end dates and receives a list pointing to the files.
-    #     If there is a problem during the download of one file, a message error will be in the list.
-    #     """
-
-    #     parser = self.get_parser(datatype=datatype)
-    #     return parser.get_range(
-    #         start_date=start_date,
-    #         end_date=end_date,
-    #         local_folder=self.local_folder,
-    #         force_download=force_download,
-    #         **kwargs,
-    #     )
-
-    # def open_file(
-    #     self,
-    #     date_str: str,
-    #     datatype: Union[Enum, str],
-    #     force_download: bool = False,
-    #     return_array: bool = True,
-    #     **kwargs,
-    # ) -> Union[xr.Dataset, xr.DataArray]:
-    #     """
-    #     Open a file and apply the post processing, if existent.
-    #     If return_array is True, it will try to access the corresponding variable
-    #     from the dataset, otherwise return the dataset.
-    #     """
-
-    #     self.logger.debug("Asked to open file %s/%s", date_str, datatype)
-
-    #     # get the file
-    #     file = self.get_file(
-    #         date=date_str, datatype=datatype, force_download=force_download, **kwargs
-    #     )
-
-    #     # open the file as is
-    #     dset = xr.open_dataset(file)
-
-    #     # get the parser to check if there is a post processing associated with it
-    #     parser = self.get_parser(datatype=datatype)
-    #     if parser.post_proc is not None:
-    #         dset = parser.post_proc(dset, date_str=date_str)
-
-    #     # transform the dataset into array
-    #     if return_array:
-    #         if isinstance(datatype, Enum):
-    #             return dset[datatype.value["var"]]
-    #         else:
-    #             return dset.to_array()
-    #     else:
-    #         return dset
-
-    # def _create_cube(
-    #     self,
-    #     dates: List,
-    #     datatype: Union[Enum, str],
-    #     dim_key: Optional[str] = "time",
-    #     force_download: bool = False,
-    #     **kwargs,
-    # ) -> xr.DataArray:
-    #     """
-    #     Stack the images in the list as one XARRAY Dataset cube.
-    #     """
-
-    #     # set the stacked dimension name
-    #     dim = "time" if dim_key is None else dim_key
-
-    #     # create a cube with the files
-    #     data_arrays = [
-    #         self.open_file(date, datatype, force_download, **kwargs).astype("float32")
-    #         for date in dates
-    #     ]
-
-    #     cube = xr.concat(data_arrays, dim=dim, coords="minimal", compat="override")  # type: ignore
-
-    #     return cube
-
-    # def create_cube(
-    #     self,
-    #     start_date: Union[str, datetime],
-    #     end_date: Union[str, datetime],
-    #     datatype: Union[Enum, str],
-    #     dim_key: Optional[str] = "time",
-    #     force_download: bool = False,
-    #     **kwargs,
-    # ) -> xr.DataArray:
-    #     """Create a cube from the range and apply the post_processor of the downloader"""
-
-    #     self.logger.info(
-    #         "Creating cube from %s to %s (%s)", start_date, end_date, datatype
-    #     )
-
-    #     # first, let's grab the desired dates
-    #     dates = self.get_parser(datatype).dates_range(
-    #         start_date=start_date, end_date=end_date
-    #     )
-
-    #     # then, create the cube
-    #     cube = self._create_cube(
-    #         dates=dates,
-    #         datatype=datatype,
-    #         dim_key=dim_key,
-    #         force_download=force_download,
-    #         **kwargs,
-    #     )
-
-    #     return cube
-
-    # def create_forecast_cube(
-    #     self,
-    #     start_date: str,
-    #     end_date: str,
-    #     dim_key: Optional[str] = "time",
-    #     forecast_lag: int = 7,
-    # ) -> xr.DataArray:
-    #     """Create a cube from the range and apply the post_processor of the downloader"""
-
-    #     self.logger.info(
-    #         "Creating daily forecast cube from %s to %s (forecast_lag=%s)",
-    #         start_date,
-    #         end_date,
-    #         forecast_lag,
-    #     )
-
-    #     # first, let's grab the desired dates
-    #     dates = self.get_parser(InpeTypes.DAILY_WRF).dates_range(
-    #         start_date=start_date, end_date=end_date
-    #     )
-
-    #     timelag = timedelta(days=forecast_lag)
-    #     lagged_dates = [
-    #         DateProcessor.normalize_date(DateProcessor.parse_date(date) - timelag)
-    #         for date in dates
-    #     ]
-    #     # set the stacked dimension name
-    #     dim = "time" if dim_key is None else dim_key
-
-    #     # create a cube with the files
-    #     data_arrays = [
-    #         self.open_file(
-    #             date, InpeTypes.DAILY_WRF, False, ref_date=lagged_date
-    #         ).astype("float32")
-    #         for date, lagged_date in zip(dates, lagged_dates)
-    #     ]
-
-    #     cube = xr.concat(data_arrays, dim=dim)  # type: ignore
-
-    #     return cube
-
-    # def accum_rain(
-    #     self,
-    #     start_date: str,
-    #     end_date: str,
-    #     datatype: InpeTypes,
-    #     force_download: bool = False,
-    # ) -> xr.DataArray:
-    #     """Accumulate the rain in the given period"""
-
-    #     # first, get the cube
-    #     cube = self.create_cube(
-    #         start_date=start_date,
-    #         end_date=end_date,
-    #         datatype=datatype,
-    #         force_download=force_download,
-    #     )
-
-    #     dset = cube.sum(dim="time")
-    #     dset = dset.assign_coords({"time": cube.time[0].values})
-
-    #     return dset
-
-    # def accum_periodically_rain(
-    #     self, periods: List, data_type: InpeTypes, force_download: bool = False
-    # ) -> xr.DataArray:
-    #     """Accumulate the rain in given periods."""
-
-    #     # get the arrays with the accumulated rain in each period
-    #     rains = [
-    #         self.accum_rain(
-    #             start_date=start,
-    #             end_date=end,
-    #             datatype=data_type,
-    #             force_download=force_download,
-    #         )
-    #         for start, end in periods
-    #     ]
-
-    #     cube = xr.concat(rains, dim="time")
-    #     return cube
+        return self.create_cube_dates(
+            dates=dates, datatype=datatype, dim_key=dim_key, **kwargs
+        )

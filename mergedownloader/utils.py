@@ -110,9 +110,13 @@ class DateProcessor:
     def start_end_dates(date: Union[str, datetime.datetime]) -> Tuple[str, str]:
         """Return the first date and last date in a specific month"""
         date = DateProcessor.parse_date(date)
+        today = DateProcessor.today()
 
-        # get the number of days
-        _, days = calendar.monthrange(date.year, date.month)
+        # Check if we are in the current month and get the number of days
+        if date.year == today.year and date.month == today.month:
+            days = today.day
+        else:
+            _, days = calendar.monthrange(date.year, date.month)
 
         # Get the first and last day of the month
         first_day = datetime.datetime(date.year, date.month, 1)
@@ -125,18 +129,22 @@ class DateProcessor:
 
     @staticmethod
     def last_n_months(
-        date: Union[str, datetime.datetime], lookback: int = 6
+        date: Union[str, datetime.datetime],
+        lookback: int = 6,
+        include_current: bool = True,
     ) -> Tuple[str, str]:
         """
         Return start and end month considering the month of the given date and
         looking back n months
         """
         date = DateProcessor.parse_date(date)
+        i = 0 if include_current else 1
 
-        start_date = date - relativedelta(months=lookback - 1)
+        start_date = date - relativedelta(months=lookback - 1 + i)
+        end_date = date - relativedelta(months=i)
 
         start_date_str = f"{start_date.year}-{start_date.month}"
-        end_date_str = f"{date.year}-{date.month}"
+        end_date_str = f"{end_date.year}-{end_date.month}"
 
         return (start_date_str, end_date_str)
 
@@ -172,6 +180,17 @@ class DateProcessor:
         """Return the current date without the time part"""
         now = datetime.datetime.now()
         return now + relativedelta(hour=0, minute=0, second=0, microsecond=0)
+
+    @staticmethod
+    def count_dates(
+        start_date: Union[str, datetime.datetime],
+        end_date: Union[str, datetime.datetime],
+        date_freq: DateFrequency,
+    ) -> int:
+        """Count the number of days between two dates"""
+        dates = DateProcessor.dates_range(start_date, end_date, date_freq)
+
+        return len(dates)
 
 
 # class ChartUtil:

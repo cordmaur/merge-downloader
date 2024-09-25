@@ -2,13 +2,8 @@
 Test Utils Module
 """
 
-from pathlib import Path
 from datetime import datetime
-from socket import gaierror
-import ftplib
-import pytest
 from mergedownloader.utils import OSUtil
-from mergedownloader.inpeparser import INPEParsers
 
 
 class TestOSUtil:

@@ -12,7 +12,7 @@ import logging
 from functools import partial
 import ssl
 import ftplib
-from urllib import request, parse
+from urllib import request, parse, error
 from enum import Enum
 
 # from dateutil import parser
@@ -187,7 +187,7 @@ class FileDownloader:
                 # if dates are the same, just skip because file already updated
                 if local_mtime == remote_mtime:
                     self.logger.debug(
-                        "Skipping %s. File already updated", local_path.name
+                        "Skipping download of %s. File already updated", local_path.name
                     )
                     return
                 else:
@@ -229,8 +229,11 @@ class FileDownloader:
         remote_file: Union[str, Path],
         local_folder: Union[str, Path],
         retrials: int = 5,
-    ) -> Path:
-        """Download an ftp file preserving filename and timestamps"""
+    ) -> Optional[Path]:
+        """
+        Download an ftp file preserving filename and timestamps.
+        In the specific case the file does not exists in the server (error 404), we return None.
+        """
 
         # Specify the download function according to the connection type
         if self._connection_type == ConnectionType.HTTP:
@@ -257,8 +260,14 @@ class FileDownloader:
                 self.logger.error("File %r was not downloaded correctly.", filename)
                 self.logger(e)
 
-            except Exception as error:  # pylint: disable=broad-except
-                self.logger.error(error)
+            except error.HTTPError as e:
+                # if the error code is 404, we know that the file does not exists
+                if e.code == 404:
+                    self.logger.warn("File %r was not available.", filename)
+                    return None
+
+            except Exception as e:  # pylint: disable=broad-except
+                self.logger.error(e)
 
             finally:
                 if attempt == retrials - 1:
@@ -275,3 +284,6 @@ class FileDownloader:
             output += f"connected to server {self._ftp.host}"
 
         return output
+
+
+__all__ = ["ConnectionType", "DownloadMode", "FileDownloader"]
