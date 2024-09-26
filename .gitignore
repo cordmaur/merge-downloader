@@ -8,6 +8,8 @@ tmp/
 *.DS_Store
 config.ini
 
+tests/data
+
 # C extensions
 *.so 
 

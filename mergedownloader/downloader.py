@@ -268,7 +268,7 @@ class Downloader:
         datatype: Union[Enum, str],
         dim_key: Optional[str] = "time",
         **kwargs,
-    ):
+    ) -> xr.DataArray:
         """
         Create a cube from a list of dates
         """
@@ -291,7 +291,7 @@ class Downloader:
         datatype: Union[Enum, str],
         dim_key: Optional[str] = "time",
         **kwargs,
-    ) -> xr.Dataset:
+    ) -> xr.DataArray:
         """
         Create a cube from a range of files
         """

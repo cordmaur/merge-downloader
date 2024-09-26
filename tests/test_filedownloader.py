@@ -56,16 +56,3 @@ class TestFileDownloader:
         assert local_path.exists()
         local_path.unlink()
 
-    # def test_ftp_file_info(self, fixture_data):
-    #     """
-    #     Test that the modification time and size of a file on the FTP server are returned.
-    #     """
-    #     ftp = FTPUtil(fixture_data["FTPurl"])
-    #     remote_file = (
-    #         fixture_data["DailyMERGEPath"] + "/" + fixture_data["DownloadTestFile"]
-    #     )
-    #     file_info = ftp.get_ftp_file_info(remote_file)
-    #     assert isinstance(file_info, dict)
-    #     assert isinstance(file_info["datetime"], datetime)
-    #     assert isinstance(file_info["size"], int)
-    #     assert len(file_info) == 2
