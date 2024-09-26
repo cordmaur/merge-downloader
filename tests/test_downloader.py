@@ -167,7 +167,7 @@ class TestDownloader:
         dset = xr.open_dataset(file)
         assert isinstance(dset, xr.Dataset)
         assert dset.rio.crs is not None
-        assert set(dset.dims) == {'time', "latitude", "longitude"}
+        assert set(dset.dims) == {"time", "latitude", "longitude"}
         assert set(dset.attrs).issuperset({"days", "last_day", "updated"})
 
     # downloader = Downloader(

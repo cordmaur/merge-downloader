@@ -9,7 +9,7 @@ from pathlib import Path
 
 import xarray as xr
 
-from .parser import AbstractParser, AbstractProcessor
+from .parser import DownloaderParser, ProcessorParser
 from .utils import DateProcessor, DateFrequency
 
 
@@ -34,7 +34,7 @@ def nc_post_proc(dset: xr.Dataset, **_) -> xr.Dataset:
 
 
 # -------------------- Parsers for the MERGE/INPE structure --------------------
-class DailyParser(AbstractParser):
+class DailyParser(DownloaderParser):
     """Daily is the total rainfall for a specific day"""
 
     constants = {
@@ -51,12 +51,13 @@ class DailyParser(AbstractParser):
         return f"MERGE_CPTEC_{date_str}.grib2"
 
     def foldername(self, date: datetime, **__):
+        """Returns a foldername to store this file. E.g. "DAILY/2000/01"""
         year = str(date.year)
         month = str(date.month).zfill(2)
         return "/".join(["DAILY", year, month])
 
 
-class DailyAverageParser(AbstractParser):
+class DailyAverageParser(DownloaderParser):
     """
     DAILY_AVERAGE was obtained through the average of each day of the year
     considering the years 2000 to 2023 (24 years).
@@ -79,10 +80,11 @@ class DailyAverageParser(AbstractParser):
         return f"MERGE_CPTEC_12Z{day_month}.nc"
 
     def foldername(self, *_, **__):
+        """Returns a foldername to store this file. E.g. "DAILY/2000/01"""
         return "DAILY_AVERAGE"
 
 
-class MonthlyAccumYearlyParser(AbstractParser):
+class MonthlyAccumYearlyParser(DownloaderParser):
     """
     MONTHLY_ACCUMULATED_YEARLY was obtained by monthly accumulating for each month.
     Example:
@@ -109,7 +111,7 @@ class MonthlyAccumYearlyParser(AbstractParser):
         return "MONTHLY_ACCUMULATED_YEARLY"
 
 
-class MonthlyAccumParser(AbstractParser):
+class MonthlyAccumParser(DownloaderParser):
     """MONTHLY_ACCUMULATED was obtained through the average of the MonthlyAccumlatedYearly,
     considering the years 2000 to 2023 (24 years).
     Example:
@@ -137,7 +139,7 @@ class MonthlyAccumParser(AbstractParser):
         return "MONTHLY_ACCUMULATED"
 
 
-class YearAccumulatedParser(AbstractParser):
+class YearAccumulatedParser(DownloaderParser):
     """
     YEAR_ACCUMULATED was obtained by accumulating all the days of the year.
 
@@ -166,7 +168,7 @@ class YearAccumulatedParser(AbstractParser):
 
 
 # -------------------- Processors for the MONTHLY_AVG_N and MONTHLY_STD_N --------------------
-class MonthlyAvgNParser(AbstractProcessor):
+class MonthlyAvgNParser(ProcessorParser):
     """Docstring"""
 
     constants = {
@@ -226,7 +228,7 @@ class MonthlyAvgNParser(AbstractProcessor):
         """This type is created through the StatsCalculator"""
 
 
-class MonthlyStdNParser(AbstractProcessor):
+class MonthlyStdNParser(ProcessorParser):
     """Docstring"""
 
     constants = {
@@ -276,7 +278,7 @@ class MonthlyStdNParser(AbstractProcessor):
 
         else:
             return False
-        
+
     def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List]:
         """This type is created through the StatsCalculator"""
 
@@ -287,7 +289,7 @@ class MonthlyStdNParser(AbstractProcessor):
 
 
 # -------------------- Processors  --------------------
-class MonthlyAccumManual(AbstractProcessor):
+class MonthlyAccumManual(ProcessorParser):
     """Docstring"""
 
     constants = {
@@ -347,7 +349,7 @@ class MonthlyAccumManual(AbstractProcessor):
         return dset
 
 
-class SPI1Processor(AbstractProcessor):  # pylint: disable=C0103
+class SPI1Processor(ProcessorParser):  # pylint: disable=C0103
     """Docstring"""
 
     constants = {

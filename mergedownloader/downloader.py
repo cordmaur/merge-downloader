@@ -11,7 +11,7 @@ from logging import handlers
 
 import xarray as xr
 
-from .parser import AbstractParser, AbstractProcessor
+from .parser import AbstractParser, ProcessorParser
 from .file_downloader import FileDownloader
 from .utils import DateProcessor
 
@@ -98,7 +98,7 @@ class Downloader:
         return file_handler
 
     # -------------------- Private Functions --------------------
-    def _process_file(self, date: datetime, processor: AbstractProcessor, **kwargs):
+    def _process_file(self, date: datetime, processor: ProcessorParser, **kwargs):
         """todo: write docstring"""
 
         local_target = processor.local_target(
@@ -188,7 +188,7 @@ class Downloader:
         self._logger.info("Getting file %s for %s", datatype, date)
 
         # If the parser is not a processor, just grab the target location and download the file
-        if not isinstance(parser, AbstractProcessor):
+        if not isinstance(parser, ProcessorParser):
             return self._download_file(date, parser, **kwargs)
 
         # Otherwise, it its a "Processor" let's call the process_file function
@@ -277,7 +277,9 @@ class Downloader:
             dset = self.open_file(date=date, datatype=datatype, **kwargs)
 
             if dset is None:
-                self._logger.error("Could not open file %s, datatype, %s", date, datatype)
+                self._logger.error(
+                    "Could not open file %s, datatype, %s", date, datatype
+                )
             else:
                 data_arrays.append(dset)
 

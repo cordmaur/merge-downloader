@@ -33,13 +33,6 @@ class AbstractParser(ABC):
     Instead, it calculates it and saves it locally, "on demand".
     """
 
-    def __init__(self):
-        # setup a logger
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-        # check if the instance has all the necessary keys in the constants
-        assert set(set(["root", "var", "name", "freq"])).issubset(self.constants.keys())
-
     @property
     @abstractmethod
     def constants(self) -> dict:
@@ -49,7 +42,15 @@ class AbstractParser(ABC):
         var - the name of the variable we are extracting from the file
         name - the name of the variable to be displayed in the systems
         freq - the frequency of the data (DateFrequency)
+        post_proc - the post processing function. Takes xr.Dataset and returns xr.Dataset
         """
+
+    def __init__(self):
+        # setup a logger
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+        # check if the instance has all the necessary keys in the constants
+        assert set(set(["var", "name", "freq", "post_proc"])).issubset(self.constants)
 
     @abstractmethod
     def filename(self, date: datetime, **kwargs) -> str:
@@ -65,18 +66,6 @@ class AbstractParser(ABC):
             return self.constants["post_proc"](ds)
         else:
             return ds
-
-    def remote_folder(self, date: datetime, **kwargs) -> str:
-        """Return just the remote folder given a date string"""
-        if self.constants["root"] is not None:
-            return Path(self.constants["root"]) / self.foldername(date, **kwargs)
-
-    def remote_target(self, date: datetime, **kwargs) -> str:
-        """Target is composed by root / folder / filename"""
-        if self.remote_folder(date, **kwargs) is not None:
-            return Path(self.remote_folder(date, **kwargs)) / self.filename(
-                date, **kwargs
-            )
 
     def local_folder(
         self, date: datetime, output_folder: Union[Path, str], **kwargs
@@ -106,7 +95,31 @@ class AbstractParser(ABC):
         return s
 
 
-class AbstractProcessor(AbstractParser):
+class DownloaderParser(AbstractParser):
+    """
+    The base class for Parsers that download data from a remote server.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        # check if it has a root
+        assert "root" in self.constants
+
+    def remote_folder(self, date: datetime, **kwargs) -> str:
+        """Return just the remote folder given a date string"""
+        if self.constants["root"] is not None:
+            return Path(self.constants["root"]) / self.foldername(date, **kwargs)
+
+    def remote_target(self, date: datetime, **kwargs) -> str:
+        """Target is composed by root / folder / filename"""
+        if self.remote_folder(date, **kwargs) is not None:
+            return Path(self.remote_folder(date, **kwargs)) / self.filename(
+                date, **kwargs
+            )
+
+
+class ProcessorParser(AbstractParser):
     """
     Abstract class for parsers and processors.
     Processors are a specific type of parser, that does not have e remote folder / target.
