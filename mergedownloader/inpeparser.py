@@ -2,10 +2,11 @@
 List of parsers for the MERGE/INPE structure
 """
 
+from pathlib import Path
 from typing import List, Dict
 from enum import Enum, auto
 from datetime import datetime
-from pathlib import Path
+from dateutil.relativedelta import relativedelta
 
 import xarray as xr
 
@@ -190,7 +191,7 @@ class MonthlyAvgNParser(ProcessorParser):
         month_abrev = DateProcessor.month_abrev(date)
 
         n = kwargs["n"]
-        return f"Monthly_AVG_{month_abrev}_{n}.nc"
+        return f"Monthly_AVG_{month_abrev}_N{n}.nc"
 
     def foldername(self, *_, **kwargs):
         """
@@ -250,7 +251,7 @@ class MonthlyStdNParser(ProcessorParser):
         month_abrev = DateProcessor.month_abrev(date)
 
         n = kwargs["n"]
-        return f"Monthly_STD_{month_abrev}_{n}.nc"
+        return f"Monthly_STD_{month_abrev}_N{n}.nc"
 
     def foldername(self, *_, **kwargs):
         """
@@ -427,6 +428,87 @@ class SPI1Processor(ProcessorParser):  # pylint: disable=C0103
         return dset
 
 
+class SPIProcessor(ProcessorParser):
+    """Docstring"""
+
+    constants = {
+        "var": "SPI",
+        "name": "Standardized Precipitation Index",
+        "freq": DateFrequency.MONTHLY,
+        "post_proc": None,
+    }
+
+    #  pylint: disable=arguments-differ
+    def filename(self, date: datetime, n: int):
+        """
+        Return the name for the SPI file, given a date (Year and Month) and the
+        number of months to be accumulated (N value)
+        """
+        month_year = DateProcessor.pretty_date(date, "%Y-%m")
+        return f"SPI_{n}_{month_year}.nc"
+
+    def foldername(self, *_, n: int, **__):
+        """
+        Return the foldername for the SPI file, given the number of months to be
+        accumulated (N value)
+        """
+        return f"MONTHLY_SPI{n}"
+
+    def inform_dependencies(self, date: datetime, n: int) -> Dict[Enum, List[dict]]:
+        """Docstring"""
+
+        # First, raise an error if we are trying to calculate SPI for a future date
+        today = DateProcessor.today()
+        if today.year == date.year and today.month == date.month:
+            raise ValueError("It's not possible to calulate SPI for the current month")
+        elif date >= today:
+            raise ValueError("It's not possible to calulate SPI for future dates")
+
+        # Then, infer the files needed to calculate the SPI for the given date.
+        dependencies = {}
+
+        # We need average and standard deviation for the desired month, considering `n`
+        dependencies[InpeTypes.MONTHLY_AVG_N] = [{"date": date, "n": n}]
+        dependencies[InpeTypes.MONTHLY_STD_N] = [{"date": date, "n": n}]
+
+        # Now, get the months needed for the MONTHLY_ACCUM_MANUAL
+        start_month, end_month = DateProcessor.last_n_months(date, lookback=n)
+        dates = DateProcessor.dates_range(start_month, end_month, DateFrequency.MONTHLY)
+        dependencies[InpeTypes.MONTHLY_ACCUM_MANUAL] = dates
+
+        return dependencies
+
+    #  pylint: enable=arguments-differ
+
+    def create_file(
+        self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
+    ) -> xr.Dataset:
+
+        # Get the average and standar deviation from the dependencies
+        avg = dependencies[InpeTypes.MONTHLY_AVG_N][0].squeeze()
+        std = dependencies[InpeTypes.MONTHLY_STD_N][0].squeeze()
+
+        # create a cube with the monthly rain
+        rain = xr.concat(dependencies[InpeTypes.MONTHLY_ACCUM_MANUAL], dim="time")
+        rain = rain.mean(dim='time')
+        rain = rain.rio.reproject_match(avg)
+        rain = rain.rename({"x": "longitude", "y": "latitude"})
+
+        # calculate SPI
+        spi = (rain - avg) / std
+        spi = spi.rename(self.constants["var"])
+        ref_time = date + relativedelta(day=1)
+        spi = spi.assign_coords({"time": ref_time}).expand_dims(dim="time")
+
+        # Convert to dataset and adjust additional attributes
+        dset = spi.to_dataset()
+        dset.attrs["updated"] = str(datetime.now())
+        dset.attrs["last_day"] = "NA"
+        dset.attrs["days"] = "NA"
+
+        return dset
+
+
 # -------------------- Bind the data types to corresponding parsers --------------------
 class InpeTypes(Enum):
     """Data types available in the parsers"""
@@ -441,6 +523,7 @@ class InpeTypes(Enum):
     MONTHLY_AVG_N = auto()
     MONTHLY_STD_N = auto()
     MONTHLY_SP1 = auto()
+    MONTHLY_SPI = auto()
 
 
 InpeParsers = {
@@ -453,6 +536,7 @@ InpeParsers = {
     InpeTypes.MONTHLY_SP1: SPI1Processor(),
     InpeTypes.MONTHLY_AVG_N: MonthlyAvgNParser(),
     InpeTypes.MONTHLY_STD_N: MonthlyStdNParser(),
+    InpeTypes.MONTHLY_SPI: SPIProcessor(),
     # InpeTypes.HOURLY_WRF: None,
 }
 

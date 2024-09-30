@@ -118,7 +118,11 @@ class DownloaderParser(AbstractParser):
                 date, **kwargs
             )
 
-
+# todo: The must_update for the processor should take a FORCE parameter. Processed 
+# variables should never update, unless desired by the user. Conversely, 
+# we could check again the file_downloader, because if we don't have internet connection
+# we can avoid updating instead of raising exception and using the stored file... 
+# to think about it.
 class ProcessorParser(AbstractParser):
     """
     Abstract class for parsers and processors.
@@ -187,7 +191,7 @@ class ProcessorParser(AbstractParser):
 
             # if the file is complete, check how old is the last update
             else:
-                if update_delta > timedelta(days=2):
+                if update_delta > timedelta(days=7):
                     self.logger.debug("Last update more than 2 day ago. Forcing update")
                     return True
 

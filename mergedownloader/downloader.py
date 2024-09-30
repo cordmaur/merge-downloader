@@ -2,6 +2,7 @@
 Module with specialized classes to understand the INPE FTP Structure
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 from enum import Enum
 from typing import Union, List, Optional, Iterable, Dict
@@ -98,6 +99,25 @@ class Downloader:
         return file_handler
 
     # -------------------- Private Functions --------------------
+    def _parse_dependencies(self, datatype: Enum, lst: List) -> List:
+        """Docstring"""
+
+        # Loop through the params in the list
+        # These params are the **kwargs that should be passed to the open file
+        result = []
+        for params in lst:
+
+            # if params is a mapping, we have to unpack it when calling open_file
+            if isinstance(params, Mapping):
+                arr = self.open_file(datatype=datatype, **params)
+            else:
+                arr = self.open_file(date=params, datatype=datatype)
+
+            if result is not None:
+                result.append(arr)
+
+        return result
+
     def _process_file(self, date: datetime, processor: ProcessorParser, **kwargs):
         """todo: write docstring"""
 
@@ -115,26 +135,16 @@ class Downloader:
         # Initially, let's get list of dependencies (if there are any)
         dependencies = processor.inform_dependencies(date=date, **kwargs)
 
-        # get the dependencies
         if dependencies is not None:
-            filled_dependencies = {}
-            for dtype, dates in dependencies.items():
-                files = []
-                for d in dates:
-                    arr = self.open_file(date=d, datatype=dtype, **kwargs)
+            filled = {}
 
-                    if arr is not None:
-                        files.append(arr)
-
-                filled_dependencies[dtype] = files
-
+            for dtype, lst in dependencies.items():
+                filled[dtype] = self._parse_dependencies(datatype=dtype, lst=lst)
         else:
-            filled_dependencies = None
+            filled = None
 
         # Now, let's process the file (it returns as a dataset)
-        dset = processor.create_file(
-            date=date, dependencies=filled_dependencies, **kwargs
-        )
+        dset = processor.create_file(date=date, dependencies=filled, **kwargs)
 
         # Then, let's create the file
         self._logger.info("Creating file %s", local_target)
@@ -171,6 +181,14 @@ class Downloader:
                     return self._parsers[dtype]
 
         raise ValueError(f"Parser not found for data type {datatype}")
+
+    def local_target(
+        self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
+    ) -> Path:
+        """todo: write docstring"""
+        date = DateProcessor.parse_date(date)
+        parser = self.get_parser(datatype=datatype)
+        return parser.local_target(date, output=self._local_folder, **kwargs)
 
     # -------------------- Download Functions --------------------
     def get_file(
