@@ -1,4 +1,5 @@
-# MERGE Downloader
+# MERGE Downloader - v2.0
+## Introduction
 The `merge-downloader` package is an unofficial Python library to download MERGE products from the Brazilian National Institute for Space Research (INPE). These products include daily precipitation raster files calibrated for South America and obtained from the MERGE model (Rozante et al. 2010), as well as other climatology data.
 
 ![Example Gif](data/south_america_anim.gif)
@@ -12,7 +13,117 @@ Besides the daily raster precipitation from MERGE, INPE provides also other clim
 
 Additionally, the `merge-downloader` automates the procedure of spatial clipping the raster data to geometries of interest, that can be given in spatial formats supported by GeoPandas such as shapefile (i.e., `.shp`) or GeoJSON (i.e., `.geojson`). 
 
-# Install
+## Class Diagram
+```mermaid
+classDiagram
+    note for AbstractParser """This class is responsible for retrieving files from the FTP/HTTP 
+    structure according to data type and date. Main function are:\n- Parse the correct <b>name</b>
+    - Parse correct <b>path</b>
+    - download the file""" 
+    
+    class DateProcessor {
+        <<utility>>
+        parse_date(date[str|datetime]) datetime
+        pretty_date(date[str|datetime]) str
+        dates_range(start, end, DateFrequency) List[datetime]
+        month_abrev(date) str
+    }
+    
+    class AbstractParser {
+        <<Abstract>>
+        constants: [root, var, name, freq]
+        filename(date) Str
+        foldername(date) Str
+        local_folder(date) Path
+        local_target(date) Path
+    }
+
+    class DownloadParser {
+        remote_target(date) str
+        remote_folder(date) str
+    }
+
+    class ProcessorParser {
+        must_update(date) bool
+        inform_dependencies(date) Dict 
+        create_file(date) Dataset
+    }
+
+    note for FileDownloader "Download the files from HTTP/FTP" 
+    class FileDownloader {
+        server: Str
+        connection_type: ConnectionType
+        download_file(remote_file: Str, local_folder: Str)
+    }
+
+    class ConnectionType{
+        <<enumeration>>
+        HTTP
+        FTP
+    }
+
+
+    class InpeParsers{
+        <<dictionary>>
+        DAILY_RAIN: DailyParser
+        MONTHLY_ACCUM_YEARLY: MonthlyAccumYearlyParser
+        DAILY_AVERAGE: DailyAverageParser
+        MONTHLY_ACCUM: MonthlyAccumParser
+        MONTHLY_ACCUM_MANUAL: None
+        YEARLY_ACCUM: YearAccumulatedParser
+        HOURLY_WRF: None
+    }
+
+    class Downloader {
+        file_downloader: FileDownloader
+        parsers: List[AbstractParsers]
+        local_folder: Path
+        get_file(date, datatype) Path
+        get_files(dates: List, datatype) List[Path]
+        get_rante(start, end, datatype) List[Path]
+        open_file(date, datatype) DataArray
+        create_cube(start, end, datatype) DataArray
+    }
+
+    class StatsCalculator{
+        downloader: Downloader
+        calc_monthly_avg_std_n(n: int)
+    }
+
+
+
+    class DateFrequency {
+        <<enumeration>>
+        DAILY
+        MONTHLY
+        YEARLY
+        HOURLY
+    }
+
+note for StatsCalculator  """Pre-calculate the average
+and standard deviation for the \nn past months. 
+These files can then be accessed by 
+MONTHLY_AVG_N and MONTHLY_STD_N types and 
+help calculate the MONTHLY_SPI index"""
+
+InpeParsers -- DownloadParser
+InpeParsers -- ProcessorParser
+ProcessorParser --|> AbstractParser
+DownloadParser --|> AbstractParser
+FileDownloader ..> ConnectionType
+AbstractParser "n" o-- "1" Downloader
+Downloader --* FileDownloader
+StatsCalculator ..> Downloader  
+DateProcessor --> DateFrequency
+%% Downloader ..> DateProcessor
+%% FileDownloader ..> DateProcessor
+%% DateProcessor <.. AbstractParser
+
+
+%% AbstractParser ..> FileDownloader
+```
+
+## Install
 The easiest way to install the `merge-downloader` is through `pip install merge-downloader`. 
 Alternatively, if you want to contribute to this package, you can clone the repository and install it in edit mode:
 ```
