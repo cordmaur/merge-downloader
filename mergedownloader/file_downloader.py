@@ -21,8 +21,8 @@ from enum import Enum
 class ConnectionType(Enum):
     """Enum to specify connection type (ftp or http)"""
 
-    FTP = "ftp"
-    HTTP = "http"
+    FTP = "FTP"
+    HTTP = "HTTP"
 
 
 class DownloadMode(Enum):
@@ -32,9 +32,9 @@ class DownloadMode(Enum):
     - NO_UPDATE: if the file already exists, it will not be downloaded
     """
 
-    FORCE = "overwrite"
-    UPDATE = "append"
-    NO_UPDATE = "no_update"
+    FORCE = "FORCE"
+    UPDATE = "UPDATE"
+    NO_UPDATE = "NO_UPDATE"
 
 
 class FileDownloader:
@@ -45,8 +45,8 @@ class FileDownloader:
     def __init__(
         self,
         server: str,
-        connection_type: ConnectionType = ConnectionType.HTTP,
-        download_mode: DownloadMode = DownloadMode.UPDATE,
+        connection_type: Union[ConnectionType, str] = ConnectionType.HTTP,
+        download_mode: Union[DownloadMode, str] = DownloadMode.UPDATE,
         log_level: int = logging.INFO,
     ):
         """

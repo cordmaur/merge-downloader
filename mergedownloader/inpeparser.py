@@ -513,17 +513,17 @@ class SPIProcessor(ProcessorParser):
 class InpeTypes(Enum):
     """Data types available in the parsers"""
 
-    DAILY_RAIN = auto()
-    MONTHLY_ACCUM_YEARLY = auto()
-    DAILY_AVERAGE = auto()
-    MONTHLY_ACCUM = auto()
-    MONTHLY_ACCUM_MANUAL = auto()
-    YEARLY_ACCUM = auto()
-    HOURLY_WRF = auto()
-    MONTHLY_AVG_N = auto()
-    MONTHLY_STD_N = auto()
-    MONTHLY_SP1 = auto()
-    MONTHLY_SPI = auto()
+    DAILY_RAIN = "DAILY_RAIN"
+    MONTHLY_ACCUM_YEARLY = "MONTHLY_ACCUM_YEARLY"
+    DAILY_AVERAGE = "DAILY_AVERAGE"
+    MONTHLY_ACCUM = "MONTHLY_ACCUM"
+    MONTHLY_ACCUM_MANUAL = "MONTHLY_ACCUM_MANUAL"
+    YEARLY_ACCUM = "YEARLY_ACCUM"
+    HOURLY_WRF = "HOURLY_WRF"
+    MONTHLY_AVG_N = "MONTHLY_AVG_N"
+    MONTHLY_STD_N = "MONTHLY_STD_N"
+    MONTHLY_SP1 = "MONTHLY_SP1"
+    MONTHLY_SPI = "MONTHLY_SPI"
 
 
 InpeParsers = {

@@ -7,8 +7,7 @@ import subprocess
 from enum import Enum
 
 from pathlib import Path
-from typing import Union, List, Optional, Tuple
-import logging
+from typing import Union, List, Optional, Tuple, Callable
 
 # from abc import ABC, abstractmethod
 import datetime
@@ -193,42 +192,6 @@ class DateProcessor:
         return len(dates)
 
 
-# class ChartUtil:
-#     @staticmethod
-#     def save_bar(series: pd.Series, datatype: INPETypes, filename: str):
-#         """Save a bar chart to a file"""
-
-#         # check if the folder exists
-#         file = Path(filename)
-
-#         if not file.parent.exists():
-#             raise FileNotFoundError(
-#                 f"Folder '{file.parent.absolute()}' does not exist."
-#             )
-
-#         axes = ChartUtil.bar_chart(series=series, datatype=datatype)
-
-#         axes.figure.subplots_adjust(bottom=0.3)
-#         axes.figure.savefig(file.with_suffix(".png").as_posix())
-
-#     @staticmethod
-#     def bar_chart(series: pd.Series, datatype: INPETypes) -> plt.Axes:
-#         """Create a bar chart from a given series"""
-
-#         # plot a graph
-#         _, axes = plt.subplots(num=2)
-#         axes.bar(x=series.index.strftime("%d-%m-%Y"), height=series.values)  # type: ignore
-
-#         labels = axes.get_xticks()
-#         axes.xaxis.set_major_locator(plt.FixedLocator(labels))  # type: ignore
-#         axes.set_xticklabels(labels, rotation=90)
-
-#         axes.set_ylabel("Precipitaion (mm)")
-#         axes.set_title(datatype.value["name"])
-
-#         return axes
-
-
 class GISUtil:
     """Helper class for basic GIS operations"""
 
@@ -297,9 +260,12 @@ class GISUtil:
         Calculate the cube inside the given geometries in the GeoDataFrame.
         The geometries are stored in a GeoSeries from Pandas
         """
-        # first make sure we have the same CRS
-        geometries = geometries.to_crs(cube.rio.crs)
 
+        # first make sure we have the same CRS
+        if cube.rio.crs != geometries.crs:
+            print(f"Coverting shp CRS to {cube.rio.crs}")
+            geometries = geometries.to_crs(cube.rio.crs)  # type: ignore
+            
         # Let's use clip to ignore data outide the geometry
         clipped = cube.rio.clip(geometries)
 
@@ -311,6 +277,29 @@ class GISUtil:
     ):
         """Cut the cube by the given bounds"""
         return cube.sel(longitude=slice(xmin, xmax), latitude=slice(ymin, ymax))
+
+    @staticmethod
+    def get_time_series(
+        cube: xr.DataArray,
+        shp: gpd.GeoDataFrame,
+        reducer: Callable,
+        keep_dim: str = "time",  # specify the dimension along with we will retrieve the TS
+    ):
+        """Get a time series of values within the shape, given a reducer method"""
+        if cube.rio.crs != shp.crs:
+            print(f"Coverting shp CRS to {cube.rio.crs}")
+            shp = shp.to_crs(cube.rio.crs)  # type: ignore
+
+        # clip to the desired area
+        area = GISUtil.cut_cube_by_geoms(cube, shp.geometry)
+
+        # get the dimensions to be reduced
+        reduce_dims = list(cube.dims)
+        reduce_dims.remove(keep_dim)
+
+        series = reducer(area, dim=reduce_dims).to_series()
+
+        return series
 
     @staticmethod
     def profile_from_xarray(array: xr.DataArray, driver: Optional[str] = "GTiff"):

@@ -1,55 +1,47 @@
-"""This module has the functions for the Command Line Interface"""
+"""
+This module has the functions for the Command Line Interface.
 
+The CLI has the following functions:
+- init: setup the download folder, and url configurations
+- reset: reset default configuration to './' and 'ftp.cptec.inpe.br'
+- download: download the data files
+- series: Calculate the rain and create a time-series for the specified period
+
+
+"""
 import argparse
 from configparser import ConfigParser
 from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
 
 import geopandas as gpd
 import xarray as xr
 
-from mergedownloader.inpeparser import INPEParsers, INPETypes
+from mergedownloader.file_downloader import FileDownloader, ConnectionType, DownloadMode
+from mergedownloader.inpeparser import InpeParsers, InpeTypes, INPE_SERVER
 from mergedownloader.downloader import Downloader
-from mergedownloader.utils import DateProcessor, GISUtil, ChartUtil
+from mergedownloader.utils import DateProcessor, GISUtil
+from mergedownloader.chart import ChartUtil
 
 
-def reset(_):
-    """Clear default configuration"""
-    file = config_file()
-
-    if file.exists():
-        print(f"Deleting file {file}")
-        file.unlink()
-
-    else:
-        print("No default config to reset")
-
-
-def init(args):
-    """Initialize the package"""
-    print("Initializing...")
-
-    # setup the folder
-    folder = args.folder.absolute()
-    folder.mkdir(parents=False, exist_ok=True)
-    print(f"Setting downloading folder to '{folder}'")
-
-    config = ConfigParser()
-    config["DEFAULT"] = {"url": args.url, "folder": folder.as_posix()}
-
-    with open(config_file(), "w", encoding="utf-8") as configfile:
-        config.write(configfile)
-
-
+# -------------------- Configuration Methods --------------------
 def config_file() -> Path:
-    """Returns the configuration file path"""
+    """
+    Returns the configuration file path.
+    For simplicity, the file will be always located in the package root.
+    """
     return Path(__file__).with_name("config.ini")
 
 
 def open_config() -> ConfigParser:
-    """Return the configuration"""
+    """Open the configuration file as a ConfigParser instance"""
     file = config_file()
     if not file.exists():
-        raise FileNotFoundError((f"Config file '{file}' not found. Run merge-downloader init first!"))
+        raise FileNotFoundError(
+            (f"Config file '{file}' not found. Run merge-downloader init first!")
+        )
 
     config = ConfigParser()
     config.read(config_file())
@@ -61,16 +53,40 @@ def validate_config(config: ConfigParser):
     """Validate the configuration"""
     validated = False
     try:
+        # Open the config file
         config = open_config()
 
-        _ = config["DEFAULT"]["url"]
+        # Get the variables
+        url = config["DEFAULT"]["url"]
         folder = Path(config["DEFAULT"]["folder"])
 
+        # Check validity of the url
+        parsed_url = urlparse(url)
+        if not parsed_url.scheme:
+            url = "http://" + url
+
+        print(f"Checking connection to {url}")
+        response = requests.get(url, timeout=5)
+        if not response.ok:
+            print(f"URL {url} not responding")
+
         if not folder.exists():
-            raise FileNotFoundError(f"Folder specified in config '{folder}' not found")
+            print(f"Folder specified in config '{folder}' not found")
+
+        # Check validity of the connection type
+        connection_type = config["DEFAULT"]["connection"]
+
+        if connection_type not in ConnectionType.__members__:
+            print(f"Invalid connection type: {connection_type}")
+
+        # Check validity of download mode
+        download_mode = config["DEFAULT"]["download"]
+
+        if download_mode not in DownloadMode.__members__:
+            print(f"Invalid download mode: {download_mode}")
+
 
         validated = True
-
     except KeyError as error:
         print(f"Invalid configuration, missing key: {error}")
 
@@ -85,96 +101,35 @@ def validate_config(config: ConfigParser):
     return validated
 
 
-def create_downloader() -> Downloader:
-    """Create a Downloader instance"""
+def create_epilog() -> str:
+    """Create the epilog message"""
 
-    config = open_config()
-    validate_config(config)
+    msg = "Actual configuration:\n"
 
-    downloader = Downloader(
-        server=config["DEFAULT"]["url"],
-        parsers=INPEParsers.parsers,
-        local_folder=config["DEFAULT"]["folder"],
+    try:
+        config = open_config()
+
+        # print keys and values within config['DEFAULT']
+        for key, value in config["DEFAULT"].items():
+            msg += f"{key}={value}\n"
+
+    except FileNotFoundError as error:
+        msg += error
+
+    return msg
+
+
+def create_argparser() -> argparse.ArgumentParser:
+    """Create the argument parser"""
+    # First, create the MAIN parser
+    parser = argparse.ArgumentParser(
+        description="Merge Downloader",
+        epilog=create_epilog(),
+        formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    return downloader
-
-
-def series(args):
-    """Download a series"""
-
-    dates = list(map(DateProcessor.pretty_date, args.dates))
-    print(f"Downloading {args.type} series for range: {dates}")
-
-    # first, create the cube
-    downloader = create_downloader()
-    cube = downloader.create_cube(
-        start_date=args.dates[0],
-        end_date=args.dates[1],
-        datatype=args.type,
-    )
-
-    # Creating time-series
-    if not args.shp:
-        print("No shapefile provided. Evaluating rain for whole region (South America)")
-        series_xr = cube.mean(dim=["latitude", "longitude"])
-        series_pd = series_xr.to_series()
-        shp = None
-
-    else:
-        shp = gpd.read_file(args.shp)
-
-        print(f"Cutting raster to: {args.shp}")
-        series_pd = downloader.get_time_series(
-            cube=cube, shp=shp, reducer=xr.DataArray.mean
-        )
-
-    # Now we have the series in a Pandas Series object
-    # save to file
-    series_pd.to_csv(args.file.with_suffix(".csv"))
-    print(f"Series exported to: {args.file.with_suffix('.csv')}")
-
-    # if chart flag is True, plot a bar chart
-    if args.chart:
-        # create a thumbnail
-        print(f"Creating bar chart: {args.file.with_suffix('.png')}")
-        ChartUtil.save_bar(
-            series=series_pd, datatype=args.type, filename=args.file.with_suffix(".png")
-        )
-
-    # if animation flag is True, create a gif file
-    if args.anim:
-        print(f"Creating animation file: {args.file.with_suffix('.gif')}")
-        GISUtil.animate_cube(cube=cube, shp=shp, filename=args.file.with_suffix(".gif"))
-
-
-def download(args):
-    """Download merge/climatologic files"""
-
-    dates = list(map(DateProcessor.pretty_date, args.dates))
-    print(f"Downloading {args.type} series for range: {dates}")
-
-    downloader = create_downloader()
-
-    files = downloader.get_range(
-        start_date=args.dates[0],
-        end_date=args.dates[1],
-        datatype=args.type,
-    )
-
-    print("The following files are available:")
-    for file in files:
-        print(file)
-
-
-def main():
-    """Main entry point for the CLI"""
-    parser = argparse.ArgumentParser(description="Merge Downloader")
-
-    ### Define subparsers
-    subparsers = parser.add_subparsers()
-
-    #### Create parent parser with DEFAULT args
+    #### Create a parent parser with DEFAULT args
+    # these args (date and type) will be used for several other parsers
     default_args = argparse.ArgumentParser(add_help=False)
     default_args.add_argument(
         "-d",
@@ -188,19 +143,22 @@ def main():
         "-t",
         "--type",
         required=True,
-        type=INPETypes.from_name,
-        help=f"Data type to download. It can be any of: {INPETypes.types()}",
+        type=InpeTypes,
+        help=f"Data type to download. It can be any of: {InpeTypes._member_names_}",  # pylint: disable=E1101, W0212
     )
     # ------------------------------------------
 
+    ### Define subparsers ###
+    subparsers = parser.add_subparsers()
+
     #### Define the RESET subcommand ####
-    parser_init = subparsers.add_parser(
+    parser_reset = subparsers.add_parser(
         "reset",
-        help="Reset default configuration",
+        help="Clear configuration",
         description="The default configuration is saved to 'config.ini' file within"
         " the package's folder.",
     )
-    parser_init.set_defaults(func=reset)
+    parser_reset.set_defaults(func=reset)
     # ------------------------------------------
 
     #### Define the INIT subcommand ####
@@ -219,8 +177,22 @@ def main():
     )
     parser_init.add_argument(
         "-url",
-        help=f"FTP URL of the server. Defaults to '{INPEParsers.FTPurl}'",
-        default=INPEParsers.FTPurl,
+        help=f"FTP URL of the server. Defaults to '{INPE_SERVER}'",
+        default=INPE_SERVER,
+    )
+    parser_init.add_argument(
+        "-c",
+        "--connection",
+        help=f"Connection type. Defaults to 'HTTP'"
+        f"\nPossible values are {ConnectionType._member_names_}",  # pylint: disable=E1101, W0212
+        default=ConnectionType.HTTP.value,
+    )
+    parser_init.add_argument(
+        "-d",
+        "--download",
+        help=f"Download mode. Defaults to 'UPDATE'"
+        f"\nPossible values are {DownloadMode._member_names_}",  # pylint: disable=E1101, W0212
+        default=DownloadMode.UPDATE.value,
     )
     parser_init.set_defaults(func=init)
     # ------------------------------------------
@@ -271,6 +243,143 @@ def main():
     )
     parser_download.set_defaults(func=download)
     # ------------------------------------------
+
+    return parser
+
+
+# -------------------- General Functions --------------------
+def create_downloader() -> Downloader:
+    """Create a Downloader instance"""
+
+    config = open_config()
+    if validate_config(config):
+
+        fd = FileDownloader(
+            server=config["DEFAULT"]["url"],
+            connection_type=ConnectionType[config["DEFAULT"]["connection"]],
+            download_mode=DownloadMode[config["DEFAULT"]["download"]]
+        )
+
+        downloader = Downloader(
+            file_downloader=fd,
+            parsers=InpeParsers,
+            local_folder=config["DEFAULT"]["folder"],
+        )
+
+        return downloader
+    else:
+        raise ValueError(
+            "Config file not initialized correctly. Run `merge-downloader init` first"
+        )
+
+
+# -------------------- Commands Functions --------------------
+def reset(_):
+    """
+    Clear (delete) default configuration.
+    """
+    file = config_file()
+
+    if file.exists():
+        print(f"Deleting file {file}")
+        file.unlink()
+
+    else:
+        print("No default config to reset")
+
+
+def init(args):
+    """Initialize the package"""
+    print("Initializing...")
+
+    # setup the folder
+    folder = args.folder.absolute()
+    folder.mkdir(parents=False, exist_ok=True)
+    print(f"Setting downloading folder to '{folder}'")
+
+    config = ConfigParser()
+    config["DEFAULT"] = {
+        "url": args.url,
+        "folder": folder.as_posix(),
+        "connection": args.connection,
+        "download": args.download,
+    }
+
+    with open(config_file(), "w", encoding="utf-8") as configfile:
+        config.write(configfile)
+
+
+def series(args):
+    """Download a series"""
+
+    dates = list(map(DateProcessor.pretty_date, args.dates))
+    print(f"Downloading {args.type} series for range: {dates}")
+
+    # first, create the cube
+    downloader = create_downloader()
+    cube = downloader.create_cube(
+        start_date=args.dates[0],
+        end_date=args.dates[1],
+        datatype=args.type,
+    )
+
+    # Creating time-series
+    if not args.shp:
+        print("No shapefile provided. Evaluating rain for whole region (South America)")
+        series_xr = cube.mean(dim=["latitude", "longitude"])
+        series_pd = series_xr.to_series()
+        shp = None
+
+    else:
+        shp = gpd.read_file(args.shp)
+
+        print(f"Cutting raster to: {args.shp}")
+        series_pd = GISUtil.get_time_series(
+            cube=cube, shp=shp, reducer=xr.DataArray.mean
+        )
+
+    # Now we have the series in a Pandas Series object
+    # save to file
+    series_pd.to_csv(args.file.with_suffix(".csv"))
+    print(f"Series exported to: {args.file.with_suffix('.csv')}")
+
+    # if chart flag is True, plot a bar chart
+    if args.chart:
+        # create a thumbnail
+        print(f"Creating bar chart: {args.file.with_suffix('.png')}")
+        ChartUtil.save_bar(
+            series=series_pd, datatype=args.type, filename=args.file.with_suffix(".png")
+        )
+
+    # if animation flag is True, create a gif file
+    if args.anim:
+        print(f"Creating animation file: {args.file.with_suffix('.gif')}")
+        GISUtil.animate_cube(cube=cube, shp=shp, filename=args.file.with_suffix(".gif"))
+
+
+def download(args):
+    """Download merge/climatologic files"""
+
+    dates = list(map(DateProcessor.pretty_date, args.dates))
+    print(f"Downloading {args.type} series for range: {dates}")
+
+    downloader = create_downloader()
+
+    files = downloader.get_range(
+        start_date=args.dates[0],
+        end_date=args.dates[1],
+        datatype=args.type,
+    )
+
+    print("The following files are available:")
+    for file in files:
+        print(file)
+
+
+# -------------------- Main Entrypoint --------------------
+def main():
+    """Main entry point for the CLI"""
+    parser = create_argparser()
 
     # Parse the arguments
     args = parser.parse_args()
