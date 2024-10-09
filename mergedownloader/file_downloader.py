@@ -263,7 +263,7 @@ class FileDownloader:
             except error.HTTPError as e:
                 # if the error code is 404, we know that the file does not exists
                 if e.code == 404:
-                    self.logger.warn("File %r was not available.", filename)
+                    self.logger.warning("File %r was not available.", filename)
                     return None
 
             except Exception as e:  # pylint: disable=broad-except

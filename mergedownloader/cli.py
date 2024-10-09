@@ -40,7 +40,7 @@ def open_config() -> ConfigParser:
     file = config_file()
     if not file.exists():
         raise FileNotFoundError(
-            (f"Config file '{file}' not found. Run merge-downloader init first!")
+            (f"Config file '{file}' not found. Run `merge-downloader` init first!")
         )
 
     config = ConfigParser()
@@ -114,9 +114,10 @@ def create_epilog() -> str:
             msg += f"{key}={value}\n"
 
     except FileNotFoundError as error:
-        msg += error
+        msg += str(error)
 
     return msg
+
 
 
 def create_argparser() -> argparse.ArgumentParser:

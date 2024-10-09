@@ -9,6 +9,7 @@ from typing import Union, List, Optional, Iterable, Dict
 from datetime import datetime
 import logging
 from logging import handlers
+from functools import lru_cache
 
 import xarray as xr
 
@@ -113,7 +114,7 @@ class Downloader:
             else:
                 arr = self.open_file(date=params, datatype=datatype)
 
-            if result is not None:
+            if arr is not None:
                 result.append(arr)
 
         return result
@@ -304,6 +305,7 @@ class Downloader:
         cube = xr.concat(data_arrays, dim=dim_key, coords="minimal", compat="override")
         return cube
 
+    @lru_cache(maxsize=8)
     def create_cube(
         self,
         start_date: Union[str, datetime],

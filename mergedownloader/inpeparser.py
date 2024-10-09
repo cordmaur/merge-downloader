@@ -4,14 +4,30 @@ List of parsers for the MERGE/INPE structure
 
 from pathlib import Path
 from typing import List, Dict
-from enum import Enum, auto
+from enum import Enum
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import matplotlib.colors as colors
 
 import xarray as xr
 
 from .parser import DownloaderParser, ProcessorParser
 from .utils import DateProcessor, DateFrequency
+
+
+class INPE:
+    """Create the structure, given a root path (remote or local) and date/time of the file"""
+
+    # DailyMERGEroot = "/modelos/tempo/MERGE/GPM/DAILY"
+
+    # Define the colors and positions of the color stops
+    cmap_colors = [(1.0, 1.0, 1.0), (1, 1, 1.0), (0.5, 0.5, 1.0), (1.0, 0.4, 0.6)]
+    positions = [0.0, 0.1, 0.7, 1.0]
+
+    # Create the colormap using LinearSegmentedColormap
+    cmap = colors.LinearSegmentedColormap.from_list(
+        "my_colormap", list(zip(positions, cmap_colors))
+    )
 
 
 # -------------------- Basic Functions to Correct INPE files --------------------
@@ -490,7 +506,7 @@ class SPIProcessor(ProcessorParser):
 
         # create a cube with the monthly rain
         rain = xr.concat(dependencies[InpeTypes.MONTHLY_ACCUM_MANUAL], dim="time")
-        rain = rain.mean(dim='time')
+        rain = rain.mean(dim="time")
         rain = rain.rio.reproject_match(avg)
         rain = rain.rename({"x": "longitude", "y": "latitude"})
 
