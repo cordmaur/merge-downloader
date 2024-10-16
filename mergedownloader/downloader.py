@@ -1,7 +1,8 @@
 """
 Module with specialized classes to understand the INPE FTP Structure
 """
-
+import tempfile
+import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from enum import Enum
@@ -36,12 +37,19 @@ class Downloader:
         # store initialization variables
         self._file_downloader = file_downloader
         self._parsers = parsers
+
+        # Test if the local folder points to Datalake
+        # if that's the case, we will need to save files to a temp file and move then afterwards
         self._local_folder = Path(local_folder)
 
-        # self.avoid_update = avoid_update
-
+        if 'dbfs' in self._local_folder.parts:
+            self._temp_dir = Path(tempfile.mkdtemp())
+        else:
+            self._temp_dir = None
+            
         self._logger = self.init_logger(log_level)
         self._logger.info("Initializing the Downloader class")
+
 
     # -------------------- Logger Functions --------------------
     def init_logger(self, log_level: int):
@@ -55,7 +63,12 @@ class Downloader:
         if logger.hasHandlers():
             logger.handlers.clear()
 
-        handler = Downloader.create_logger_handler(self._local_folder, log_level)
+        if self._temp_dir is not None:
+            log_folder = self._temp_dir.parent
+        else:
+            log_folder = self._local_folder
+
+        handler = Downloader.create_logger_handler(log_folder, log_level)
         logger.addHandler(handler)
 
         # setup Downloader logger
@@ -149,7 +162,8 @@ class Downloader:
 
         # Then, let's create the file
         self._logger.info("Creating file %s", local_target)
-        dset.to_netcdf(local_target)
+        # dset.to_netcdf(local_target)
+        self._save_dataset(dset, local_target)
 
         return local_target
 
@@ -166,6 +180,25 @@ class Downloader:
         return self._file_downloader.download_file(
             remote_file=remote_target, local_folder=local_folder
         )
+
+    def _save_dataset(self, dset: xr.Dataset, target: Path):
+        """"Save the dataset, considering the necessity of temp dir"""
+    
+        # Define the compression settings
+        compression_settings = {var: {"zlib": True, "complevel": 5} for var in dset.data_vars}    
+
+        if self._temp_dir is None:
+            dset.to_netcdf(target, encoding=compression_settings)
+
+        else:
+            self._logger.debug("Using temporary directory %s", self._temp_dir)
+
+            # save to the temporary dir
+            tmp_target = self._temp_dir / target.name
+            dset.to_netcdf(tmp_target, encoding=compression_settings)
+
+            # then, move the file to the target
+            shutil.move(tmp_target, target)
 
     # -------------------- Utilities Functions --------------------
     def get_parser(self, datatype: Union[Enum, str]) -> AbstractParser:
@@ -323,3 +356,8 @@ class Downloader:
         return self.create_cube_dates(
             dates=dates, datatype=datatype, dim_key=dim_key, **kwargs
         )
+
+    def __del__(self):
+        shutil.rmtree(self._temp_dir.as_posix())
+
+    
