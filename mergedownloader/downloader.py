@@ -358,6 +358,7 @@ class Downloader:
         )
 
     def __del__(self):
-        shutil.rmtree(self._temp_dir.as_posix())
+        if self._temp_dir and self._temp_dir.exists():
+            shutil.rmtree(self._temp_dir.as_posix())
 
     
