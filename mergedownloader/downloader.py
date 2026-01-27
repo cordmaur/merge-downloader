@@ -304,7 +304,7 @@ class Downloader:
         file = self.get_file(date=date, datatype=datatype, **kwargs)
 
         if file is not None:
-            ds = xr.open_dataset(file)
+            ds = xr.open_dataset(file, drop_variables=['step'])
 
             parser = self.get_parser(datatype=datatype)
             if parser.post_proc is not None:
