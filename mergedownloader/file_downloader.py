@@ -13,28 +13,10 @@ from functools import partial
 import ssl
 import ftplib
 from urllib import request, parse, error
-from enum import Enum
+
+from .enums import ConnectionType, DownloadMode
 
 # from dateutil import parser
-
-
-class ConnectionType(Enum):
-    """Enum to specify connection type (ftp or http)"""
-
-    FTP = "FTP"
-    HTTP = "HTTP"
-
-
-class DownloadMode(Enum):
-    """Enum to specify download mode:
-    - FORCE: if the file already exists, it will be overwritten
-    - UPDATE: if the file already exists, update it if necessary (default)
-    - NO_UPDATE: if the file already exists, it will not be downloaded
-    """
-
-    FORCE = "FORCE"
-    UPDATE = "UPDATE"
-    NO_UPDATE = "NO_UPDATE"
 
 
 class FileDownloader:
@@ -48,6 +30,7 @@ class FileDownloader:
         connection_type: Union[ConnectionType, str] = ConnectionType.HTTP,
         download_mode: Union[DownloadMode, str] = DownloadMode.UPDATE,
         log_level: int = logging.INFO,
+        check_interval: int = 28800,
     ):
         """
         Initialize a FileDownloader instance
@@ -56,6 +39,11 @@ class FileDownloader:
             url (str): URL to the server.
             connection_type (Union[str, ConnectionType], optional): Type of connection.
             Defaults to "http".
+            download_mode (Union[DownloadMode, str], optional): Download mode behavior.
+            Defaults to UPDATE.
+            log_level (int, optional): Logging level. Defaults to logging.INFO.
+            check_interval (int, optional): Time in seconds to cache file check results.
+            Defaults to 28800 (8 hours). Set to 0 to disable caching.
 
         """
         if connection_type == ConnectionType.FTP:
@@ -65,6 +53,8 @@ class FileDownloader:
         self._server = server
         self._connection_type = connection_type
         self._download_mode = download_mode
+        self._check_interval = check_interval
+        self._check_cache = {}  # {remote_url: last_check_timestamp}
 
         # if it is an FTP connection, the ftp and context variables will be set up
         if self._connection_type == ConnectionType.FTP:
@@ -77,7 +67,7 @@ class FileDownloader:
 
     # -------------------- Logging Functionality --------------------
     @staticmethod
-    def _setup_logger(log_level: int) -> None:
+    def _setup_logger(log_level: int) -> logging.Logger:
         """Set up the logger"""
         FileDownloader.LOGGER.handlers.clear()
         FileDownloader.LOGGER.setLevel(log_level)
@@ -98,9 +88,9 @@ class FileDownloader:
                 ftp.sendcmd("TYPE I")
                 return ftp
 
-            except Exception as error:  # pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 msg = f"Attempt {attempt + 1} to connect failed. "
-                msg += f"Exception {type(error)}: {error}"
+                msg += f"Exception {type(exc)}: {exc}"
 
                 if logger is not None:
                     logger.error(msg)
@@ -173,28 +163,62 @@ class FileDownloader:
             self.logger.debug("Skipping %s. File already exists", local_path.name)
             return
 
-        # Then, let's open a request to the file to check its date
+        # For UPDATE mode with existing file, check timestamps BEFORE downloading
+        if local_path.exists() and self._download_mode == DownloadMode.UPDATE:
+            # Check if we recently verified this file (cache check)
+            cache_key = remote_file
+
+            if self._check_interval > 0 and cache_key in self._check_cache:
+                time_since_check = time.time() - self._check_cache[cache_key]
+                if time_since_check < self._check_interval:
+                    # Recently verified, skip HEAD request
+                    self.logger.debug(
+                        "Skipping check for %s (verified %.1f hours ago)",
+                        local_path.name,
+                        time_since_check / 3600,
+                    )
+                    return  # Early exit - no HEAD request needed
+
+            # Cache miss/expired - make a HEAD request to get only headers, not the file content
+            req = request.Request(remote_file, method="HEAD")
+            try:
+                with request.urlopen(req) as response:
+                    remote_dt_str = response.headers.get("Last-Modified")
+                    if remote_dt_str:
+                        date_format = "%a, %d %b %Y %H:%M:%S %Z"
+                        remote_dt = datetime.strptime(remote_dt_str, date_format)
+                        remote_mtime = time.mktime(remote_dt.timetuple())
+                        local_mtime = local_path.stat().st_mtime
+
+                        # if dates are the same, just skip because file already updated
+                        if local_mtime == remote_mtime:
+                            # Cache this successful check
+                            if self._check_interval > 0:
+                                self._check_cache[cache_key] = time.time()
+                            self.logger.debug(
+                                "Skipping download of %s. File already updated",
+                                local_path.name,
+                            )
+                            return
+                        else:
+                            self.logger.debug(
+                                "Downloading %s. File has been modified",
+                                local_path.name,
+                            )
+            except error.HTTPError:
+                # If HEAD request fails, proceed with normal download
+                self.logger.debug("HEAD request failed, proceeding with full download")
+
+        # Now download the file (for FORCE, UPDATE with changes, or new files)
         with request.urlopen(remote_file) as response:
             remote_dt_str = response.headers.get("Last-Modified")
-            date_format = "%a, %d %b %Y %H:%M:%S %Z"
-            remote_dt = datetime.strptime(remote_dt_str, date_format)
-            remote_mtime = time.mktime(remote_dt.timetuple())
+            remote_mtime = None
+            if remote_dt_str:
+                date_format = "%a, %d %b %Y %H:%M:%S %Z"
+                remote_dt = datetime.strptime(remote_dt_str, date_format)
+                remote_mtime = time.mktime(remote_dt.timetuple())
 
-            # If it exists and mode is UPDATE, check if the file has been modified or not
-            if local_path.exists() and self._download_mode == DownloadMode.UPDATE:
-                local_mtime = local_path.stat().st_mtime
-
-                # if dates are the same, just skip because file already updated
-                if local_mtime == remote_mtime:
-                    self.logger.debug(
-                        "Skipping download of %s. File already updated", local_path.name
-                    )
-                    return
-                else:
-                    self.logger.debug(
-                        "Downloading %s. File has been modified", local_path.name
-                    )
-            elif not local_path.exists():
+            if not local_path.exists():
                 self.logger.debug(
                     "Downloading %s. File does not exist", local_path.name
                 )
@@ -204,13 +228,14 @@ class FileDownloader:
                     local_path.name,
                 )
 
-            # Now, let's download the file
+            # Download the file
             with open(local_path, "wb") as out_file:
                 data = response.read()
                 out_file.write(data)
 
-            # And update the modification time
-            os.utime(local_path, (remote_mtime, remote_mtime))
+            # Update the modification time if available
+            if remote_mtime is not None:
+                os.utime(local_path, (remote_mtime, remote_mtime))
 
     @staticmethod
     def _download_ftp_file(
@@ -224,6 +249,14 @@ class FileDownloader:
             ftp.retrbinary("RETR " + remote_file, local_file.write)
 
     # -------------------- Public Methods --------------------
+    def clear_check_cache(self) -> None:
+        """
+        Clear the check cache to force fresh checks on next download.
+        Useful when you know files have been updated externally.
+        """
+        self._check_cache.clear()
+        self.logger.debug("Check cache cleared")
+
     def download_file(
         self,
         remote_file: Union[str, Path],
@@ -240,6 +273,8 @@ class FileDownloader:
             download_fn = self._download_http_file
         else:
             ftp = self.get_connection()
+            if ftp is None:
+                raise ConnectionError("FTP connection could not be established")
             download_fn = partial(self._download_ftp_file, ftp=ftp)
 
         # get the filename and set the local path
@@ -258,7 +293,7 @@ class FileDownloader:
 
             except EOFError as e:
                 self.logger.error("File %r was not downloaded correctly.", filename)
-                self.logger(e)
+                self.logger.error(e)
 
             except error.HTTPError as e:
                 # if the error code is 404, we know that the file does not exists
@@ -286,4 +321,4 @@ class FileDownloader:
         return output
 
 
-__all__ = ["ConnectionType", "DownloadMode", "FileDownloader"]
+__all__ = ["FileDownloader"]

@@ -9,6 +9,7 @@ The CLI has the following functions:
 
 
 """
+
 import argparse
 from configparser import ConfigParser
 from pathlib import Path
@@ -19,8 +20,9 @@ import requests
 import geopandas as gpd
 import xarray as xr
 
-from mergedownloader.file_downloader import FileDownloader, ConnectionType, DownloadMode
-from mergedownloader.inpeparser import InpeParsers, InpeTypes, INPE_SERVER
+from mergedownloader.file_downloader import FileDownloader
+from mergedownloader.enums import ConnectionType, DownloadMode, InpeTypes
+from mergedownloader.inpeparser import InpeParsers, INPE_SERVER
 from mergedownloader.downloader import Downloader
 from mergedownloader.utils import DateProcessor, GISUtil
 from mergedownloader.chart import ChartUtil
@@ -85,7 +87,6 @@ def validate_config(config: ConfigParser):
         if download_mode not in DownloadMode.__members__:
             print(f"Invalid download mode: {download_mode}")
 
-
         validated = True
     except KeyError as error:
         print(f"Invalid configuration, missing key: {error}")
@@ -117,7 +118,6 @@ def create_epilog() -> str:
         msg += str(error)
 
     return msg
-
 
 
 def create_argparser() -> argparse.ArgumentParser:
@@ -258,7 +258,7 @@ def create_downloader() -> Downloader:
         fd = FileDownloader(
             server=config["DEFAULT"]["url"],
             connection_type=ConnectionType[config["DEFAULT"]["connection"]],
-            download_mode=DownloadMode[config["DEFAULT"]["download"]]
+            download_mode=DownloadMode[config["DEFAULT"]["download"]],
         )
 
         downloader = Downloader(

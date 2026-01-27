@@ -13,6 +13,7 @@ import xarray as xr
 
 from .parser import DownloaderParser, ProcessorParser
 from .utils import DateProcessor, DateFrequency
+from .enums import InpeTypes
 
 
 class INPE:
@@ -54,7 +55,7 @@ def nc_post_proc(dset: xr.Dataset, **_) -> xr.Dataset:
 class DailyParser(DownloaderParser):
     """Daily is the total rainfall for a specific day"""
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": "/modelos/tempo/MERGE/GPM",
         "var": "prec",
         "name": "Daily Rain",
@@ -83,7 +84,7 @@ class DailyAverageParser(DownloaderParser):
     MERGE_CPTEC_12Z01dec.nc =(01dec2000+01dec2001..+..01dec2023) / (2023-2000+1)
     """
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "pmed",
         "name": "Daily Average",
@@ -108,7 +109,7 @@ class MonthlyAccumYearlyParser(DownloaderParser):
     MERGE_CPTEC_acum_dec_2022.nc=(prec_01dec2022+prec_02dec2022+......+prec_31dec2022)
     """
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "pacum",
         "name": "Monthly Accumulated Yearly",
@@ -136,7 +137,7 @@ class MonthlyAccumParser(DownloaderParser):
     MERGE_CPTEC_acum_dec.nc =(acum_dec2000+acum_dec2001+.....+acum_dec2023) / (2023-2000+1)
     """
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "precacum",
         "name": "Monthly Accumulated",
@@ -165,7 +166,7 @@ class YearAccumulatedParser(DownloaderParser):
     MERGE_CPTEC_acum_2022.nc=(prec_01jan2022+...+prec_31dec2022)
     """
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "pacum",
         "name": "Year Accumulated",
@@ -188,7 +189,7 @@ class YearAccumulatedParser(DownloaderParser):
 class MonthlyAvgNParser(ProcessorParser):
     """Docstring"""
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": None,
         "var": "avg_n",
         "name": "Monthly Average N",
@@ -238,17 +239,23 @@ class MonthlyAvgNParser(ProcessorParser):
 
     def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List]:
         """This type is created through the StatsCalculator"""
+        raise NotImplementedError(
+            "This type must be pre-computed using StatsCalculator.calc_monthly_avg_std_n()"
+        )
 
     def create_file(
         self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
     ) -> xr.Dataset:
         """This type is created through the StatsCalculator"""
+        raise NotImplementedError(
+            "This type must be pre-computed using StatsCalculator.calc_monthly_avg_std_n()"
+        )
 
 
 class MonthlyStdNParser(ProcessorParser):
     """Docstring"""
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": None,
         "var": "std_n",
         "name": "Monthly Std N",
@@ -298,18 +305,24 @@ class MonthlyStdNParser(ProcessorParser):
 
     def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List]:
         """This type is created through the StatsCalculator"""
+        raise NotImplementedError(
+            "This type must be pre-computed using StatsCalculator.calc_monthly_avg_std_n()"
+        )
 
     def create_file(
         self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
     ) -> xr.Dataset:
         """This type is created through the StatsCalculator"""
+        raise NotImplementedError(
+            "This type must be pre-computed using StatsCalculator.calc_monthly_avg_std_n()"
+        )
 
 
 # -------------------- Processors  --------------------
 class MonthlyAccumManual(ProcessorParser):
     """Docstring"""
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": None,
         "var": "pacum",
         "name": "Monthly Accumulated Manual",
@@ -333,10 +346,12 @@ class MonthlyAccumManual(ProcessorParser):
         """
 
         # get first and end date given the reference date (month/year)
-        start_date, end_date = DateProcessor.start_end_dates(date=date)
+        start_date_str, end_date_str = DateProcessor.start_end_dates(date=date)
 
-        # get all days in the month/year
-        dates = DailyParser.dates_range(start_date, end_date)
+        # get all days in the month/year (parse strings to datetime)
+        start_dt = DateProcessor.parse_date(start_date_str)
+        end_dt = DateProcessor.parse_date(end_date_str)
+        dates = DailyParser.dates_range(start_dt, end_dt)
 
         # Return the list of dependencies
         return {InpeTypes.DAILY_RAIN: dates}
@@ -369,7 +384,7 @@ class MonthlyAccumManual(ProcessorParser):
 class SPI1Processor(ProcessorParser):  # pylint: disable=C0103
     """Docstring"""
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "root": None,
         "var": "SPI1",
         "name": "Standardized Precipitation Index (1m)",
@@ -447,7 +462,7 @@ class SPI1Processor(ProcessorParser):  # pylint: disable=C0103
 class SPIProcessor(ProcessorParser):
     """Docstring"""
 
-    constants = {
+    constants = {  # type: ignore[assignment]
         "var": "SPI",
         "name": "Standardized Precipitation Index",
         "freq": DateFrequency.MONTHLY,
@@ -455,7 +470,7 @@ class SPIProcessor(ProcessorParser):
     }
 
     #  pylint: disable=arguments-differ
-    def filename(self, date: datetime, n: int):
+    def filename(self, date: datetime, n: int, **__):  # type: ignore[override]
         """
         Return the name for the SPI file, given a date (Year and Month) and the
         number of months to be accumulated (N value)
@@ -463,14 +478,14 @@ class SPIProcessor(ProcessorParser):
         month_year = DateProcessor.pretty_date(date, "%Y-%m")
         return f"SPI_{n}_{month_year}.nc"
 
-    def foldername(self, *_, n: int, **__):
+    def foldername(self, *_, n: int, **__):  # type: ignore[override]
         """
         Return the foldername for the SPI file, given the number of months to be
         accumulated (N value)
         """
         return f"MONTHLY_SPI{n}"
 
-    def inform_dependencies(self, date: datetime, n: int) -> Dict[Enum, List[dict]]:
+    def inform_dependencies(self, date: datetime, n: int, **__) -> Dict[Enum, List[dict]]:  # type: ignore[override]
         """Docstring"""
 
         # First, raise an error if we are trying to calculate SPI for a future date
@@ -526,22 +541,6 @@ class SPIProcessor(ProcessorParser):
 
 
 # -------------------- Bind the data types to corresponding parsers --------------------
-class InpeTypes(Enum):
-    """Data types available in the parsers"""
-
-    DAILY_RAIN = "DAILY_RAIN"
-    MONTHLY_ACCUM_YEARLY = "MONTHLY_ACCUM_YEARLY"
-    DAILY_AVERAGE = "DAILY_AVERAGE"
-    MONTHLY_ACCUM = "MONTHLY_ACCUM"
-    MONTHLY_ACCUM_MANUAL = "MONTHLY_ACCUM_MANUAL"
-    YEARLY_ACCUM = "YEARLY_ACCUM"
-    HOURLY_WRF = "HOURLY_WRF"
-    MONTHLY_AVG_N = "MONTHLY_AVG_N"
-    MONTHLY_STD_N = "MONTHLY_STD_N"
-    MONTHLY_SP1 = "MONTHLY_SP1"
-    MONTHLY_SPI = "MONTHLY_SPI"
-
-
 InpeParsers = {
     InpeTypes.DAILY_RAIN: DailyParser(),
     InpeTypes.MONTHLY_ACCUM_YEARLY: MonthlyAccumYearlyParser(),

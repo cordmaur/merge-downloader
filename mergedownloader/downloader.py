@@ -1,6 +1,7 @@
 """
 Module with specialized classes to understand the INPE FTP Structure
 """
+
 import tempfile
 import shutil
 from collections.abc import Mapping
@@ -14,12 +15,11 @@ from functools import lru_cache
 
 import xarray as xr
 
-from .parser import AbstractParser, ProcessorParser
+from .parser import AbstractParser, ProcessorParser, DownloaderParser
 from .file_downloader import FileDownloader
 from .utils import DateProcessor
 
 # from .utils import FTPUtil, OSUtil, DateProcessor
-# from .enums import DataTypes
 
 
 class Downloader:
@@ -42,14 +42,13 @@ class Downloader:
         # if that's the case, we will need to save files to a temp file and move then afterwards
         self._local_folder = Path(local_folder)
 
-        if 'dbfs' in self._local_folder.parts:
+        if "dbfs" in self._local_folder.parts:
             self._temp_dir = Path(tempfile.mkdtemp())
         else:
             self._temp_dir = None
-            
+
         self._logger = self.init_logger(log_level)
         self._logger.info("Initializing the Downloader class")
-
 
     # -------------------- Logger Functions --------------------
     def init_logger(self, log_level: int):
@@ -158,6 +157,7 @@ class Downloader:
             filled = None
 
         # Now, let's process the file (it returns as a dataset)
+        assert filled is not None, "Dependencies could not be filled"
         dset = processor.create_file(date=date, dependencies=filled, **kwargs)
 
         # Then, let's create the file
@@ -174,7 +174,11 @@ class Downloader:
             date=date, output_folder=self._local_folder, **kwargs
         )
 
-        remote_target = parser.remote_target(date=date, **kwargs)
+        # Cast to DownloaderParser to access remote_target
+        if isinstance(parser, DownloaderParser):
+            remote_target = parser.remote_target(date=date, **kwargs)
+        else:
+            raise ValueError("Parser must be a DownloaderParser to download files")
 
         # download the file
         return self._file_downloader.download_file(
@@ -182,10 +186,12 @@ class Downloader:
         )
 
     def _save_dataset(self, dset: xr.Dataset, target: Path):
-        """"Save the dataset, considering the necessity of temp dir"""
-    
+        """ "Save the dataset, considering the necessity of temp dir"""
+
         # Define the compression settings
-        compression_settings = {var: {"zlib": True, "complevel": 5} for var in dset.data_vars}    
+        compression_settings = {
+            var: {"zlib": True, "complevel": 5} for var in dset.data_vars
+        }
 
         if self._temp_dir is None:
             dset.to_netcdf(target, encoding=compression_settings)
@@ -241,7 +247,9 @@ class Downloader:
 
         # If the parser is not a processor, just grab the target location and download the file
         if not isinstance(parser, ProcessorParser):
-            return self._download_file(date, parser, **kwargs)
+            result = self._download_file(date, parser, **kwargs)
+            assert result is not None, f"Failed to download file for {date}"
+            return result
 
         # Otherwise, it its a "Processor" let's call the process_file function
         else:
@@ -286,7 +294,9 @@ class Downloader:
         If there is a problem during the download of one file, a message error will be in the list.
         """
         parser = self.get_parser(datatype=datatype)
-        dates = parser.dates_range(start_date, end_date)
+        start_dt = DateProcessor.parse_date(start_date)
+        end_dt = DateProcessor.parse_date(end_date)
+        dates = parser.dates_range(start_dt, end_dt)
 
         return self.get_files(
             dates=dates,
@@ -297,14 +307,14 @@ class Downloader:
     # -------------------- Data Manipulation Functions --------------------
     def open_file(
         self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
-    ) -> xr.DataArray:
+    ) -> Optional[xr.DataArray]:
         """
         Open the file, downloading it, if that's necessary
         """
         file = self.get_file(date=date, datatype=datatype, **kwargs)
 
         if file is not None:
-            ds = xr.open_dataset(file, drop_variables=['step'])
+            ds = xr.open_dataset(file, drop_variables=["step"])
 
             parser = self.get_parser(datatype=datatype)
             if parser.post_proc is not None:
@@ -351,7 +361,9 @@ class Downloader:
         Create a cube from a range of files
         """
         parser = self.get_parser(datatype=datatype)
-        dates = parser.dates_range(start_date, end_date)
+        start_dt = DateProcessor.parse_date(start_date)
+        end_dt = DateProcessor.parse_date(end_date)
+        dates = parser.dates_range(start_dt, end_dt)
 
         return self.create_cube_dates(
             dates=dates, datatype=datatype, dim_key=dim_key, **kwargs
@@ -360,5 +372,3 @@ class Downloader:
     def __del__(self):
         if self._temp_dir and self._temp_dir.exists():
             shutil.rmtree(self._temp_dir.as_posix())
-
-    

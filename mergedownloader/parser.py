@@ -3,7 +3,7 @@ The parser module defines the template of a Parser Class.
 
 The `FileDownloader` is just a dumb class for downloading files from FTP or HTTP.
 Someone needs to know exactly where the files are. For example, if we want to download
-the monthly average of rainfall, we need to know where is the rainfall data on the server. 
+the monthly average of rainfall, we need to know where is the rainfall data on the server.
 
 Ex. We want the daily rainfall data for 15/04/2023. This file is located at
 https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM/DAILY/2023/04/MERGE_CPTEC_20230415.grib2
@@ -87,7 +87,7 @@ class AbstractParser(ABC):
     def dates_range(cls, start_date: datetime, end_date: datetime) -> list:
         """Return a list of dates between start_date and end_date"""
         return DateProcessor.dates_range(
-            start_date=start_date, end_date=end_date, date_freq=cls.constants["freq"]
+            start_date=start_date, end_date=end_date, date_freq=cls.constants["freq"]  # type: ignore[index]
         )
 
     def __repr__(self):
@@ -109,20 +109,19 @@ class DownloaderParser(AbstractParser):
     def remote_folder(self, date: datetime, **kwargs) -> str:
         """Return just the remote folder given a date string"""
         if self.constants["root"] is not None:
-            return Path(self.constants["root"]) / self.foldername(date, **kwargs)
+            path = Path(self.constants["root"]) / self.foldername(date, **kwargs)
+            return str(path)
+        return ""
 
     def remote_target(self, date: datetime, **kwargs) -> str:
         """Target is composed by root / folder / filename"""
-        if self.remote_folder(date, **kwargs) is not None:
-            return Path(self.remote_folder(date, **kwargs)) / self.filename(
-                date, **kwargs
-            )
+        remote_folder = self.remote_folder(date, **kwargs)
+        if remote_folder:
+            path = Path(remote_folder) / self.filename(date, **kwargs)
+            return str(path)
+        return ""
 
-# todo: The must_update for the processor should take a FORCE parameter. Processed 
-# variables should never update, unless desired by the user. Conversely, 
-# we could check again the file_downloader, because if we don't have internet connection
-# we can avoid updating instead of raising exception and using the stored file... 
-# to think about it.
+
 class ProcessorParser(AbstractParser):
     """
     Abstract class for parsers and processors.
@@ -131,7 +130,7 @@ class ProcessorParser(AbstractParser):
     """
 
     @abstractmethod
-    def inform_dependencies(self, date: datetime, **kwargs) -> dict[Enum, List]:
+    def inform_dependencies(self, date: datetime, **kwargs) -> Dict[Enum, List]:
         """
         Returns the dependencies needed by the processor to calculate the variable.
         The dependencies will be fetched by the Downloader (caller) and the result will be passed
@@ -191,8 +190,8 @@ class ProcessorParser(AbstractParser):
 
             # if the file is complete, check how old is the last update
             else:
-                if update_delta > timedelta(days=7):
-                    self.logger.debug("Last update more than 2 day ago. Forcing update")
+                if update_delta > timedelta(days=1):
+                    self.logger.debug("Last update more than 1 day ago. Forcing update")
                     return True
 
                 return False
@@ -205,4 +204,14 @@ class ProcessorParser(AbstractParser):
     def create_file(
         self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **kwargs
     ) -> xr.Dataset:
-        """todo: Add docstring"""
+        """
+        Create a file by processing the dependencies.
+
+        Args:
+            date: The reference date for the file
+            dependencies: Dictionary mapping data types to lists of DataArrays
+            **kwargs: Additional keyword arguments
+
+        Returns:
+            xr.Dataset: The processed dataset
+        """

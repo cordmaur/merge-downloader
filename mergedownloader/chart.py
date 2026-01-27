@@ -2,11 +2,13 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from mergedownloader.inpeparser import InpeTypes, InpeParsers
+from mergedownloader.inpeparser import InpeParsers
+from mergedownloader.enums import InpeTypes
 
 
 class ChartUtil:
     """ChartUtil class"""
+
     @staticmethod
     def save_bar(series: pd.Series, datatype: InpeTypes, filename: str):
         """Save a bar chart to a file"""
@@ -36,10 +38,8 @@ class ChartUtil:
         axes.xaxis.set_major_locator(plt.FixedLocator(labels))  # type: ignore
         axes.set_xticklabels(labels, rotation=90)
 
-        title = InpeParsers[datatype].constants['name']
+        title = InpeParsers[datatype].constants["name"]
         axes.set_ylabel("Precipitaion (mm)")
         axes.set_title(title)
-
-
 
         return axes

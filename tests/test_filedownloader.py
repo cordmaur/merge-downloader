@@ -4,7 +4,8 @@ Test Utils Module
 
 from pathlib import Path
 import pytest
-from mergedownloader.file_downloader import FileDownloader, ConnectionType
+from mergedownloader.file_downloader import FileDownloader
+from mergedownloader.enums import ConnectionType
 
 # from mergedownloader.inpeparser import INPEParsers
 
@@ -55,4 +56,3 @@ class TestFileDownloader:
         assert local_path.name == fixture_data["DownloadTestFile"]
         assert local_path.exists()
         local_path.unlink()
-

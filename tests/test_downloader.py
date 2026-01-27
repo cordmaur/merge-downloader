@@ -13,9 +13,11 @@ import pytest
 import xarray as xr
 
 from mergedownloader.downloader import Downloader
-from mergedownloader.file_downloader import ConnectionType, FileDownloader
+from mergedownloader.file_downloader import FileDownloader
+from mergedownloader.enums import ConnectionType
 from mergedownloader.parser import AbstractParser
-from mergedownloader.inpeparser import InpeParsers, InpeTypes, INPE_SERVER, DailyParser
+from mergedownloader.inpeparser import InpeParsers, INPE_SERVER, DailyParser
+from mergedownloader.enums import InpeTypes
 from mergedownloader.utils import DateProcessor, DateFrequency
 
 # from mergedownloader.utils import GISUtil
