@@ -190,8 +190,10 @@ class FileDownloader:
                         remote_mtime = time.mktime(remote_dt.timetuple())
                         local_mtime = local_path.stat().st_mtime
 
+                        self.logger.debug(f"{datetime.fromtimestamp(local_mtime)} == {remote_dt}")
+
                         # if dates are the same, just skip because file already updated
-                        if local_mtime == remote_mtime:
+                        if local_mtime > remote_mtime:
                             # Cache this successful check
                             if self._check_interval > 0:
                                 self._check_cache[cache_key] = time.time()
@@ -233,9 +235,11 @@ class FileDownloader:
                 data = response.read()
                 out_file.write(data)
 
-            # Update the modification time if available
-            if remote_mtime is not None:
-                os.utime(local_path, (remote_mtime, remote_mtime))
+
+        self.logger.debug("Downloaded %s", local_path)
+        # Update the modification time if available
+        # if remote_mtime is not None:
+            # os.utime(local_path, (remote_mtime, remote_mtime))
 
     @staticmethod
     def _download_ftp_file(

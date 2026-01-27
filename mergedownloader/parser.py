@@ -176,6 +176,8 @@ class ProcessorParser(AbstractParser):
             updated = DateProcessor.parse_date(dset.attrs["updated"])
             update_delta = datetime.now() - updated
 
+            self.logger.debug("%s", update_delta)
+
             # Here, if the attribute is NA (Not Applicable), we can assume that the file is complete
             if dset.attrs["days"] != "NA" and dset.attrs["days"] != ref_days:
                 self.logger.debug("File not complete on date %s", date)
