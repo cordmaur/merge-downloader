@@ -5,6 +5,7 @@ These classes are designed to be used in the :class:`.Downloader` class
 
 import os
 import time
+import tempfile
 from datetime import datetime
 from typing import Optional, Union
 from pathlib import Path
@@ -148,98 +149,175 @@ class FileDownloader:
             return True
 
     # -------------------- Private Methods --------------------
-    def _download_http_file(self, remote_file: str, local_path: Path):
-        """
-        Download an http file preserving filename and timestamps.
-        The behavior of this function will depend on the DownloadMode specified.
-        If the DownloadMode is FORCE, it will always download the file, regardless if it already exists
-        IF the DownloadMode is NO_UPDATE, it will not download if the file already exists
-        If the DownloadMode is UPDATE, it will only download if the file does not already exists or if it has been modified
-        """
+    def _update_check_cache(self, cache_key: str) -> None:
+        """Update the check cache with current timestamp"""
+        if self._check_interval > 0:
+            self._check_cache[cache_key] = time.time()
+            self.logger.debug("Cache updated for %s", cache_key)
 
-        # first, let's check if the local file already exists
-        # If it exists and mode is NO_UPDATE, just skip
+    def _should_skip_download(
+        self, local_path: Path, remote_file: str
+    ) -> tuple[bool, str]:
+        """
+        Determine if download should be skipped based on mode and cache.
+        Returns (should_skip, reason) tuple.
+        """
+        # NO_UPDATE mode: skip if file exists
         if local_path.exists() and self._download_mode == DownloadMode.NO_UPDATE:
-            self.logger.debug("Skipping %s. File already exists", local_path.name)
-            return
+            self._update_check_cache(remote_file)
+            return True, "File already exists (NO_UPDATE mode)"
 
-        # For UPDATE mode with existing file, check timestamps BEFORE downloading
-        if local_path.exists() and self._download_mode == DownloadMode.UPDATE:
-            # Check if we recently verified this file (cache check)
-            cache_key = remote_file
+        # File doesn't exist: must download
+        if not local_path.exists():
+            return False, "File does not exist"
 
-            if self._check_interval > 0 and cache_key in self._check_cache:
-                time_since_check = time.time() - self._check_cache[cache_key]
-                if time_since_check < self._check_interval:
-                    # Recently verified, skip HEAD request
-                    self.logger.debug(
-                        "Skipping check for %s (verified %.1f hours ago)",
-                        local_path.name,
-                        time_since_check / 3600,
-                    )
-                    return  # Early exit - no HEAD request needed
+        # FORCE mode: always download
+        if self._download_mode == DownloadMode.FORCE:
+            return False, "FORCE mode enabled"
 
-            # Cache miss/expired - make a HEAD request to get only headers, not the file content
+        # UPDATE mode with existing file: check cache first
+        if self._check_interval > 0 and remote_file in self._check_cache:
+            time_since_check = time.time() - self._check_cache[remote_file]
+            if time_since_check < self._check_interval:
+                return (
+                    True,
+                    f"Recently verified ({time_since_check / 3600:.1f} hours ago)",
+                )
+
+        return False, "UPDATE mode - need to check remote"
+
+    def _check_remote_modified(
+        self, remote_file: str, local_path: Path
+    ) -> tuple[bool, Optional[float]]:
+        """
+        Check if remote file has been modified compared to local file.
+        Returns (is_modified, remote_mtime) tuple.
+        remote_mtime is None if cannot be determined.
+        """
+        try:
             req = request.Request(remote_file, method="HEAD")
-            try:
-                with request.urlopen(req) as response:
-                    remote_dt_str = response.headers.get("Last-Modified")
-                    if remote_dt_str:
-                        date_format = "%a, %d %b %Y %H:%M:%S %Z"
-                        remote_dt = datetime.strptime(remote_dt_str, date_format)
-                        remote_mtime = time.mktime(remote_dt.timetuple())
-                        local_mtime = local_path.stat().st_mtime
+            with request.urlopen(req) as response:
+                remote_dt_str = response.headers.get("Last-Modified")
+                if not remote_dt_str:
+                    # Cannot determine remote time, assume modified
+                    self.logger.debug("No Last-Modified header, assuming file modified")
+                    return True, None
 
-                        self.logger.debug(f"{datetime.fromtimestamp(local_mtime)} == {remote_dt}")
-
-                        # if dates are the same, just skip because file already updated
-                        if local_mtime > remote_mtime:
-                            # Cache this successful check
-                            if self._check_interval > 0:
-                                self._check_cache[cache_key] = time.time()
-                            self.logger.debug(
-                                "Skipping download of %s. File already updated",
-                                local_path.name,
-                            )
-                            return
-                        else:
-                            self.logger.debug(
-                                "Downloading %s. File has been modified",
-                                local_path.name,
-                            )
-            except error.HTTPError:
-                # If HEAD request fails, proceed with normal download
-                self.logger.debug("HEAD request failed, proceeding with full download")
-
-        # Now download the file (for FORCE, UPDATE with changes, or new files)
-        with request.urlopen(remote_file) as response:
-            remote_dt_str = response.headers.get("Last-Modified")
-            remote_mtime = None
-            if remote_dt_str:
                 date_format = "%a, %d %b %Y %H:%M:%S %Z"
                 remote_dt = datetime.strptime(remote_dt_str, date_format)
                 remote_mtime = time.mktime(remote_dt.timetuple())
+                local_mtime = local_path.stat().st_mtime
 
-            if not local_path.exists():
                 self.logger.debug(
-                    "Downloading %s. File does not exist", local_path.name
-                )
-            elif self._download_mode == DownloadMode.FORCE:
-                self.logger.debug(
-                    "Downloading %s. File already exists and mode is FORCE",
-                    local_path.name,
+                    "Comparing times: local=%s, remote=%s",
+                    datetime.fromtimestamp(local_mtime),
+                    remote_dt,
                 )
 
-            # Download the file
-            with open(local_path, "wb") as out_file:
-                data = response.read()
-                out_file.write(data)
+                # If remote is newer, file has been modified
+                is_modified = remote_mtime > local_mtime
+                return is_modified, remote_mtime
 
+        except error.HTTPError as e:
+            self.logger.debug("HEAD request failed: %s, assuming file modified", e)
+            return True, None
 
-        self.logger.debug("Downloaded %s", local_path)
-        # Update the modification time if available
-        # if remote_mtime is not None:
-            # os.utime(local_path, (remote_mtime, remote_mtime))
+    def _perform_download(
+        self, remote_file: str, local_path: Path, reason: str
+    ) -> bool:
+        """
+        Perform the actual file download using atomic write pattern.
+        Downloads to temporary file first, then replaces target.
+
+        For DBFS mounts (Azure), uses delete-then-rename pattern since
+        os.replace() doesn't work reliably on FUSE-mounted cloud storage.
+
+        Returns True if successful.
+        Raises exceptions for caller to handle (404, EOFError, etc.)
+        """
+        self.logger.debug("Downloading %s. Reason: %s", local_path.name, reason)
+
+        with request.urlopen(remote_file) as response:
+            # Create temp file in same directory as target for atomic move
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=local_path.parent, prefix=f".{local_path.name}.", suffix=".tmp"
+            )
+
+            try:
+                # Download to temp file
+                with os.fdopen(temp_fd, "wb") as temp_file:
+                    data = response.read()
+                    temp_file.write(data)
+                    temp_file.flush()  # Ensure data written to disk
+
+                # Check if we're on DBFS mount (Azure/Databricks)
+                is_dbfs = "dbfs" in local_path.parts
+
+                if is_dbfs:
+                    # DBFS mounts don't support atomic os.replace()
+                    # Use delete-then-rename pattern for cloud storage
+                    if local_path.exists():
+                        os.remove(local_path)
+                    os.rename(temp_path, local_path)
+                    self.logger.debug(
+                        "Successfully downloaded %s (DBFS delete-rename)",
+                        local_path.name,
+                    )
+                else:
+                    # Standard atomic replace for local filesystems
+                    os.replace(temp_path, local_path)
+                    self.logger.debug("Successfully downloaded %s", local_path.name)
+
+                return True
+
+            except Exception:  # pylint: disable=broad-except
+                # Clean up temp file on error
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
+
+    def _download_http_file(self, remote_file: str, local_path: Path):
+        """
+        Download an http file with intelligent caching and atomic writes.
+
+        Behavior depends on DownloadMode:
+        - FORCE: Always download, regardless of local file state
+        - NO_UPDATE: Skip if file exists locally
+        - UPDATE: Download only if file doesn't exist or remote is newer
+
+        Raises HTTPError, EOFError, etc. for caller to handle.
+        """
+        # Ensure parent directory exists
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Check if we should skip download
+        should_skip, reason = self._should_skip_download(local_path, remote_file)
+        if should_skip:
+            self.logger.debug("Skipping %s. %s", local_path.name, reason)
+            return
+
+        # For UPDATE mode with existing file, check if remote is modified
+        if (
+            local_path.exists()
+            and self._download_mode == DownloadMode.UPDATE
+            and reason == "UPDATE mode - need to check remote"
+        ):
+            is_modified, _ = self._check_remote_modified(remote_file, local_path)
+            if not is_modified:
+                self._update_check_cache(remote_file)
+                self.logger.debug(
+                    "Skipping %s. Remote file not modified", local_path.name
+                )
+                return
+
+            reason = "File has been modified"
+
+        # Perform the download (may raise exceptions)
+        success = self._perform_download(remote_file, local_path, reason)
+
+        # Update cache after successful operation
+        if success:
+            self._update_check_cache(remote_file)
 
     @staticmethod
     def _download_ftp_file(
