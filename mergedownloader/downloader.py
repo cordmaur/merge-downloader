@@ -233,7 +233,7 @@ class Downloader:
     # -------------------- Download Functions --------------------
     def get_file(
         self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
-    ) -> Path:
+    ) -> Path | None:
         """
         Get the desired file, given a date and a datatype. The `FileDownloader` will be responsible
         for deciding whether the file should be downloaded or not.
@@ -247,9 +247,7 @@ class Downloader:
 
         # If the parser is not a processor, just grab the target location and download the file
         if not isinstance(parser, ProcessorParser):
-            result = self._download_file(date, parser, **kwargs)
-            assert result is not None, f"Failed to download file for {date}"
-            return result
+            return self._download_file(date, parser, **kwargs)
 
         # Otherwise, it its a "Processor" let's call the process_file function
         else:
@@ -260,7 +258,7 @@ class Downloader:
         dates: Iterable[Union[str, datetime]],
         datatype: Union[Enum, str],
         **kwargs,
-    ) -> List[Path]:
+    ) -> List[Path | None]:
         """
         Download files from a list of dates and receives a list pointing to the files.
         If there is a problem during the download of one file, None will be appended to the list
@@ -288,7 +286,7 @@ class Downloader:
         end_date: Union[str, datetime],
         datatype: Union[Enum, str],
         **kwargs,
-    ) -> List[Path]:
+    ) -> List[Path | None]:
         """
         Download a range of files from start to end dates and receives a list pointing to the files.
         If there is a problem during the download of one file, a message error will be in the list.
