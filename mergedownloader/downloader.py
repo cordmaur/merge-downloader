@@ -1,7 +1,7 @@
 """
 Module with specialized classes to understand the INPE FTP Structure
 """
-
+import time
 import tempfile
 import shutil
 from collections.abc import Mapping
@@ -12,6 +12,7 @@ from datetime import datetime
 import logging
 from logging import handlers
 from functools import lru_cache
+from databricks.sdk.runtime import *
 
 import xarray as xr
 
@@ -162,6 +163,7 @@ class Downloader:
 
         # Then, let's create the file
         self._logger.info("Creating file %s", local_target)
+        self._logger.debug("Updated at %s", dset.attrs["updated"])
         # dset.to_netcdf(local_target)
         self._save_dataset(dset, local_target)
 
@@ -193,7 +195,12 @@ class Downloader:
             var: {"zlib": True, "complevel": 5} for var in dset.data_vars
         }
 
+        if target.exists():
+            self._logger.info("Deleting file %s", target)
+            dbutils.fs.rm(target.as_posix().replace("/dbfs", ""), recurse=False)
+        
         if self._temp_dir is None:
+            self._logger.info("Saving file %s", target)
             dset.to_netcdf(target, encoding=compression_settings)
 
         else:
@@ -204,7 +211,7 @@ class Downloader:
             dset.to_netcdf(tmp_target, encoding=compression_settings)
 
             # then, move the file to the target
-            shutil.move(tmp_target, target)
+            dbutils.fs.cp("file:" + tmp_target.as_posix(), target.as_posix().replace("/dbfs", ""))
 
     # -------------------- Utilities Functions --------------------
     def get_parser(self, datatype: Union[Enum, str]) -> AbstractParser:
@@ -312,7 +319,14 @@ class Downloader:
         file = self.get_file(date=date, datatype=datatype, **kwargs)
 
         if file is not None:
-            ds = xr.open_dataset(file, drop_variables=["step"])
+            for _ in range(3):  # try to open the file 3 times
+                try:
+                    ds = xr.open_dataset(file, drop_variables=["step"], cache=False)
+                    break
+                except Exception as e:
+                    self._logger.error(e)
+                    self._logger.info("Retrying to open file %s", file)
+                    time.sleep(1)
 
             parser = self.get_parser(datatype=datatype)
             if parser.post_proc is not None:
