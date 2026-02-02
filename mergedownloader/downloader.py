@@ -1,6 +1,7 @@
 """
 Module with specialized classes to understand the INPE FTP Structure
 """
+
 import time
 import tempfile
 import shutil
@@ -12,10 +13,9 @@ from datetime import datetime
 import logging
 from logging import handlers
 from functools import lru_cache
-from databricks.sdk.runtime import *
-
 import xarray as xr
 
+from .inpeparser import InpeTypes
 from .parser import AbstractParser, ProcessorParser, DownloaderParser
 from .file_downloader import FileDownloader
 from .utils import DateProcessor
@@ -31,7 +31,7 @@ class Downloader:
     def __init__(
         self,
         file_downloader: FileDownloader,
-        parsers: Dict[Enum, AbstractParser],
+        parsers: Dict[InpeTypes, AbstractParser],
         local_folder: Union[str, Path],
         log_level: int = logging.INFO,
     ):
@@ -50,6 +50,8 @@ class Downloader:
 
         self._logger = self.init_logger(log_level)
         self._logger.info("Initializing the Downloader class")
+
+        self._dbutils = self._get_dbutils()
 
     # -------------------- Logger Functions --------------------
     def init_logger(self, log_level: int):
@@ -113,7 +115,7 @@ class Downloader:
         return file_handler
 
     # -------------------- Private Functions --------------------
-    def _parse_dependencies(self, datatype: Enum, lst: List) -> List:
+    def _get_dependencies(self, datatype: InpeTypes, lst: List) -> List:
         """Docstring"""
 
         # Loop through the params in the list
@@ -147,13 +149,13 @@ class Downloader:
 
         # If the file does not exists locally, let's start the processing
         # Initially, let's get list of dependencies (if there are any)
-        dependencies = processor.inform_dependencies(date=date, **kwargs)
+        dependencies = processor.list_dependencies(date=date, **kwargs)
 
         if dependencies is not None:
             filled = {}
 
             for dtype, lst in dependencies.items():
-                filled[dtype] = self._parse_dependencies(datatype=dtype, lst=lst)
+                filled[dtype] = self._get_dependencies(datatype=dtype, lst=lst)
         else:
             filled = None
 
@@ -182,10 +184,28 @@ class Downloader:
         else:
             raise ValueError("Parser must be a DownloaderParser to download files")
 
+        self._logger.debug("Downloading %s to folder %s", remote_target, local_folder)
+
         # download the file
         return self._file_downloader.download_file(
             remote_file=remote_target, local_folder=local_folder
         )
+
+    def _get_dbutils(self):
+        """Lazily import dbutils; return None when not running on Databricks."""
+
+        if hasattr(self, "_dbutils"):
+            return self._dbutils
+
+        try:  # defer import so local environments avoid auth errors
+            import dbutils  # pylint: disable=all
+
+            self._dbutils = dbutils
+        except Exception as exc:  # pylint: disable=broad-except
+            self._logger.debug("databricks sdk runtime unavailable: %s", exc)
+            self._dbutils = None
+
+        return self._dbutils
 
     def _save_dataset(self, dset: xr.Dataset, target: Path):
         """ "Save the dataset, considering the necessity of temp dir"""
@@ -195,10 +215,23 @@ class Downloader:
             var: {"zlib": True, "complevel": 5} for var in dset.data_vars
         }
 
+        is_dbfs_target = "dbfs" in target.parts
+
         if target.exists():
             self._logger.info("Deleting file %s", target)
-            dbutils.fs.rm(target.as_posix().replace("/dbfs", ""), recurse=False)
-        
+
+            if is_dbfs_target:
+                dbutils = self._get_dbutils()
+
+                if dbutils is None:
+                    raise RuntimeError(
+                        "Attempted to delete a dbfs file but Databricks runtime is not available"
+                    )
+
+                dbutils.fs.rm(target.as_posix().replace("/dbfs", ""), recurse=False)
+            else:
+                target.unlink()
+
         if self._temp_dir is None:
             self._logger.info("Saving file %s", target)
             dset.to_netcdf(target, encoding=compression_settings)
@@ -211,10 +244,20 @@ class Downloader:
             dset.to_netcdf(tmp_target, encoding=compression_settings)
 
             # then, move the file to the target
-            dbutils.fs.cp("file:" + tmp_target.as_posix(), target.as_posix().replace("/dbfs", ""))
+            dbutils = self._get_dbutils()
+
+            if dbutils is None:
+                raise RuntimeError(
+                    "Attempted to move a file into dbfs but Databricks runtime is not available"
+                )
+
+            dbutils.fs.cp(
+                "file:" + tmp_target.as_posix(),
+                target.as_posix().replace("/dbfs", ""),
+            )
 
     # -------------------- Utilities Functions --------------------
-    def get_parser(self, datatype: Union[Enum, str]) -> AbstractParser:
+    def get_parser(self, datatype: Union[InpeTypes, str]) -> AbstractParser:
         """
         Get the parser associated with the given datatype
         """
@@ -230,7 +273,7 @@ class Downloader:
         raise ValueError(f"Parser not found for data type {datatype}")
 
     def local_target(
-        self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
+        self, date: Union[str, datetime], datatype: Union[InpeTypes, str], **kwargs
     ) -> Path:
         """todo: write docstring"""
         date = DateProcessor.parse_date(date)
@@ -239,7 +282,7 @@ class Downloader:
 
     # -------------------- Download Functions --------------------
     def get_file(
-        self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
+        self, date: Union[str, datetime], datatype: Union[InpeTypes, str], **kwargs
     ) -> Path | None:
         """
         Get the desired file, given a date and a datatype. The `FileDownloader` will be responsible
@@ -263,7 +306,7 @@ class Downloader:
     def get_files(
         self,
         dates: Iterable[Union[str, datetime]],
-        datatype: Union[Enum, str],
+        datatype: Union[InpeTypes, str],
         **kwargs,
     ) -> List[Path | None]:
         """
@@ -291,7 +334,7 @@ class Downloader:
         self,
         start_date: Union[str, datetime],
         end_date: Union[str, datetime],
-        datatype: Union[Enum, str],
+        datatype: Union[InpeTypes, str],
         **kwargs,
     ) -> List[Path | None]:
         """
@@ -311,22 +354,28 @@ class Downloader:
 
     # -------------------- Data Manipulation Functions --------------------
     def open_file(
-        self, date: Union[str, datetime], datatype: Union[Enum, str], **kwargs
+        self, date: Union[str, datetime], datatype: Union[InpeTypes, str], **kwargs
     ) -> Optional[xr.DataArray]:
         """
         Open the file, downloading it, if that's necessary
         """
         file = self.get_file(date=date, datatype=datatype, **kwargs)
+        ds = None
 
         if file is not None:
-            for _ in range(3):  # try to open the file 3 times
+            for i in range(3):  # try to open the file 3 times
                 try:
                     ds = xr.open_dataset(file, drop_variables=["step"], cache=False)
                     break
                 except Exception as e:
+                    if i == 2:
+                        raise e
                     self._logger.error(e)
                     self._logger.info("Retrying to open file %s", file)
                     time.sleep(1)
+
+            if ds is None:
+                return None
 
             parser = self.get_parser(datatype=datatype)
             if parser.post_proc is not None:
@@ -339,7 +388,7 @@ class Downloader:
     def create_cube_dates(
         self,
         dates: List[Union[str, datetime]],
-        datatype: Union[Enum, str],
+        datatype: Union[InpeTypes, str],
         dim_key: Optional[str] = "time",
         **kwargs,
     ) -> xr.DataArray:
@@ -365,7 +414,7 @@ class Downloader:
         self,
         start_date: Union[str, datetime],
         end_date: Union[str, datetime],
-        datatype: Union[Enum, str],
+        datatype: Union[InpeTypes, str],
         dim_key: Optional[str] = "time",
         **kwargs,
     ) -> xr.DataArray:

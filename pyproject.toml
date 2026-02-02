@@ -1,0 +1,6 @@
+[tool.pylint.messages_control]
+disable = ["broad-except", "import-outside-toplevel"]
+
+[tool.pyright]
+reportMissingImports = false
+reportMissingModuleSource = false

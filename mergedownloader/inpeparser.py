@@ -4,14 +4,13 @@ List of parsers for the MERGE/INPE structure
 
 from pathlib import Path
 from typing import List, Dict
-from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import matplotlib.colors as colors
 
 import xarray as xr
 
-from .parser import DownloaderParser, ProcessorParser
+from .parser import AbstractParser, DownloaderParser, ProcessorParser
 from .utils import DateProcessor, DateFrequency
 from .enums import InpeTypes
 
@@ -185,6 +184,42 @@ class YearAccumulatedParser(DownloaderParser):
         return "YEAR_ACCUMULATED"
 
 
+class WRFHourlyParser(DownloaderParser):
+    """Hourly is the total rainfall for a specific hour"""
+
+    constants = {  # type: ignore[assignment]
+        "root": "/modelos/tempo/",
+        "var": "unknown",
+        "name": "Hourly Rain",
+        "freq": DateFrequency.HOURLY,
+        "post_proc": grib2_post_proc,
+    }
+
+    def filename(self, date: datetime, **kwargs):
+        """Create the filename of the WRF file, given a specific date"""
+
+        if "forecast_datetime" not in kwargs:
+            raise ValueError("Missing forecast_datetime argument in kwargs")
+        else:
+            forecast_datetime = DateProcessor.parse_date(kwargs["forecast_datetime"])
+
+        date_str = DateProcessor.normalize_date(date)
+        forecast_str = DateProcessor.normalize_date(
+            forecast_datetime, format="%Y%m%d%H"
+        )
+
+        print(forecast_str)
+
+        return f"WRF_cpt_07KM_{date_str}00_{forecast_str}.grib2"
+
+    def foldername(self, date: datetime, **__):
+        """Returns a foldername to store this file. E.g. "WRF/2000/01"""
+        year = str(date.year)
+        month = str(date.month).zfill(2)
+        day = str(date.day).zfill(2)
+        return "/".join(["WRF/ams_07km/recortes/prec", year, month, day, "00"])
+
+
 # -------------------- Processors for the MONTHLY_AVG_N and MONTHLY_STD_N --------------------
 class MonthlyAvgNParser(ProcessorParser):
     """Docstring"""
@@ -237,14 +272,14 @@ class MonthlyAvgNParser(ProcessorParser):
         else:
             return False
 
-    def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List]:
+    def list_dependencies(self, date: datetime, **__) -> Dict[InpeTypes, List]:
         """This type is created through the StatsCalculator"""
         raise NotImplementedError(
             "This type must be pre-computed using StatsCalculator.calc_monthly_avg_std_n()"
         )
 
     def create_file(
-        self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
+        self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
     ) -> xr.Dataset:
         """This type is created through the StatsCalculator"""
         raise NotImplementedError(
@@ -303,14 +338,14 @@ class MonthlyStdNParser(ProcessorParser):
         else:
             return False
 
-    def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List]:
+    def list_dependencies(self, date: datetime, **__) -> Dict[InpeTypes, List]:
         """This type is created through the StatsCalculator"""
         raise NotImplementedError(
             "This type must be pre-computed using StatsCalculator.calc_monthly_avg_std_n()"
         )
 
     def create_file(
-        self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
+        self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
     ) -> xr.Dataset:
         """This type is created through the StatsCalculator"""
         raise NotImplementedError(
@@ -319,6 +354,65 @@ class MonthlyStdNParser(ProcessorParser):
 
 
 # -------------------- Processors  --------------------
+class WRFDailyProcessor(ProcessorParser):
+    """Docstring"""
+
+    constants = {  # type: ignore[assignment]
+        "root": None,
+        "var": "prec",
+        "name": "WRF Daily Rain",
+        "freq": DateFrequency.DAILY,
+        "post_proc": None,
+    }
+
+    def filename(self, date: datetime, **_):
+        date_str = DateProcessor.normalize_date(date)
+        return f"WRF_CPTEC_{date_str}.grib2"
+
+    def foldername(self, date: datetime, **__):
+        year = str(date.year)
+        month = str(date.month).zfill(2)
+        return "/".join(["WRF/DAILY", year, month])
+
+    def list_dependencies(self, date: datetime, **__) -> Dict[InpeTypes, List[str]]:
+        """Docstring"""
+
+        # For WRF Daily, we depend on all hourly files of the given day
+        dates = []
+        for hour in range(0, 7 * 24):
+            dt = date + timedelta(hours=hour + 1)
+            dates.append({"date": date, "forecast_datetime": dt})
+
+        # Return the list of dependencies
+        return {InpeTypes.HOURLY_WRF: dates}
+
+    def create_file(
+        self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
+    ) -> xr.Dataset:
+        """Docstring"""
+
+        # create a cube with the hourly rain
+        cube = xr.concat(dependencies[InpeTypes.HOURLY_WRF], dim="time")
+
+        # accumulate the rain
+        accum = cube.sum(dim="time")
+
+        # Adjust name and time coordinates
+        accum = accum.rename(self.constants["var"])
+        ref_time = cube.time[0].values
+        accum = accum.assign_coords({"time": ref_time}).expand_dims(dim="time")
+
+        # Convert to dataset and adjust additional attributes
+        dset = accum.to_dataset()
+        dset.attrs["updated"] = str(datetime.now())
+        dset.attrs["last_hour"] = DateProcessor.normalize_date(
+            cube.time[-1].values.astype("datetime64[s]").item()
+        )
+        dset.attrs["hours"] = len(cube.time)
+
+        return dset
+
+
 class MonthlyAccumManual(ProcessorParser):
     """Docstring"""
 
@@ -337,7 +431,7 @@ class MonthlyAccumManual(ProcessorParser):
     def foldername(self, *_, **__):
         return "MONTHLY_ACCUM_MANUAL"
 
-    def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List[str]]:
+    def list_dependencies(self, date: datetime, **__) -> Dict[InpeTypes, List[str]]:
         """
         The MonthlyAccumManual processor depends on the daily information for every single
         day in the given Month/Year. So, here we have to return the list of all dates we need
@@ -357,7 +451,7 @@ class MonthlyAccumManual(ProcessorParser):
         return {InpeTypes.DAILY_RAIN: dates}
 
     def create_file(
-        self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
+        self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
     ) -> xr.Dataset:
 
         # create a cube with the daily rain
@@ -399,7 +493,7 @@ class SPI1Processor(ProcessorParser):  # pylint: disable=C0103
     def foldername(self, *_, **__):
         return "MONTHLY_SPI1"
 
-    def inform_dependencies(self, date: datetime, **__) -> Dict[Enum, List]:
+    def list_dependencies(self, date: datetime, **__) -> Dict[InpeTypes, List]:
         """Docstring"""
 
         today = DateProcessor.today()
@@ -424,7 +518,7 @@ class SPI1Processor(ProcessorParser):  # pylint: disable=C0103
         }
 
     def create_file(
-        self, date: datetime, dependencies: Dict[Enum, List], **__
+        self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
     ) -> xr.Dataset:
         """Docstring"""
 
@@ -485,7 +579,7 @@ class SPIProcessor(ProcessorParser):
         """
         return f"MONTHLY_SPI{n}"
 
-    def inform_dependencies(self, date: datetime, n: int, **__) -> Dict[Enum, List[dict]]:  # type: ignore[override]
+    def list_dependencies(self, date: datetime, n: int, **__) -> Dict[InpeTypes, List[dict]]:  # type: ignore[override]
         """Docstring"""
 
         # First, raise an error if we are trying to calculate SPI for a future date
@@ -512,7 +606,7 @@ class SPIProcessor(ProcessorParser):
     #  pylint: enable=arguments-differ
 
     def create_file(
-        self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **__
+        self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
     ) -> xr.Dataset:
 
         # Get the average and standar deviation from the dependencies
@@ -541,7 +635,7 @@ class SPIProcessor(ProcessorParser):
 
 
 # -------------------- Bind the data types to corresponding parsers --------------------
-InpeParsers = {
+InpeParsers: dict[InpeTypes, AbstractParser] = {
     InpeTypes.DAILY_RAIN: DailyParser(),
     InpeTypes.MONTHLY_ACCUM_YEARLY: MonthlyAccumYearlyParser(),
     InpeTypes.DAILY_AVERAGE: DailyAverageParser(),
@@ -552,7 +646,7 @@ InpeParsers = {
     InpeTypes.MONTHLY_AVG_N: MonthlyAvgNParser(),
     InpeTypes.MONTHLY_STD_N: MonthlyStdNParser(),
     InpeTypes.MONTHLY_SPI: SPIProcessor(),
-    # InpeTypes.HOURLY_WRF: None,
+    InpeTypes.HOURLY_WRF: WRFHourlyParser(),
 }
 
 INPE_SERVER = "ftp.cptec.inpe.br"

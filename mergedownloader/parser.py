@@ -23,6 +23,8 @@ from datetime import datetime, timedelta
 
 import xarray as xr
 
+from mergedownloader.enums import InpeTypes
+
 from .utils import DateProcessor, DateFrequency
 
 
@@ -130,7 +132,7 @@ class ProcessorParser(AbstractParser):
     """
 
     @abstractmethod
-    def inform_dependencies(self, date: datetime, **kwargs) -> Dict[Enum, List]:
+    def list_dependencies(self, date: datetime, **kwargs) -> Dict[InpeTypes, List]:
         """
         Returns the dependencies needed by the processor to calculate the variable.
         The dependencies will be fetched by the Downloader (caller) and the result will be passed
@@ -204,7 +206,10 @@ class ProcessorParser(AbstractParser):
 
     @abstractmethod
     def create_file(
-        self, date: datetime, dependencies: Dict[Enum, List[xr.DataArray]], **kwargs
+        self,
+        date: datetime,
+        dependencies: Dict[InpeTypes, List[xr.DataArray]],
+        **kwargs,
     ) -> xr.Dataset:
         """
         Create a file by processing the dependencies.

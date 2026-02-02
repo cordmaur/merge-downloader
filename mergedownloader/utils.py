@@ -54,14 +54,14 @@ class DateProcessor:
         return date if isinstance(date, datetime.datetime) else parser.parse(date)
 
     @staticmethod
-    def normalize_date(date: Union[str, datetime.datetime]) -> str:
+    def normalize_date(date: Union[str, datetime.datetime], format: str = "%Y%m%d") -> str:
         """
         Parse the date string in any format accepted by dateutil and delivers a date
         in the following format: "YYYYMMDD"
         """
         date = DateProcessor.parse_date(date)
 
-        return date.strftime("%Y%m%d")
+        return date.strftime(format)
 
     @staticmethod
     def pretty_date(

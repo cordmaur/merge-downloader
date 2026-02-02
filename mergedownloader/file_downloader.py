@@ -364,6 +364,8 @@ class FileDownloader:
         local_path = Path(local_folder) / filename
         remote_file = self.server_url + str(remote_file)
 
+        self.logger.debug("Remote file: %s", remote_file)
+
         for attempt in range(retrials):
             try:
                 if attempt > 0:
