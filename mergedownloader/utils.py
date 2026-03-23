@@ -13,13 +13,17 @@ from typing import Union, List, Optional, Tuple, Callable
 import datetime
 import calendar
 
+import numpy as np
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
 
 from PIL import Image
 import matplotlib.pyplot as plt
 
-import pandas as pd
+import pandas as pd  # noqa: F401
+
+# Type alias for date parameters that accept multiple formats
+DateType = Union[str, datetime.datetime, np.datetime64]
 
 from shapely import box
 import rasterio as rio
@@ -49,24 +53,28 @@ class DateProcessor:
     """Docstring"""
 
     @staticmethod
-    def parse_date(date: Union[str, datetime.datetime]) -> datetime.datetime:
-        """Return a date in datetime format, regardless the input [str | datetime]"""
-        return date if isinstance(date, datetime.datetime) else parser.parse(date)
+    def parse_date(date: DateType) -> datetime.datetime:
+        """Return a date in datetime format, regardless the input [str | datetime | numpy.datetime64]"""
+        if isinstance(date, datetime.datetime):
+            return date
+        elif isinstance(date, np.datetime64):
+            # Fast conversion: convert to microseconds then to datetime object
+            return date.astype("M8[us]").astype(object)
+        else:
+            return parser.parse(date)
 
     @staticmethod
-    def normalize_date(date: Union[str, datetime.datetime], format: str = "%Y%m%d") -> str:
+    def normalize_date(date: DateType, format_str: str = "%Y%m%d") -> str:
         """
         Parse the date string in any format accepted by dateutil and delivers a date
         in the following format: "YYYYMMDD"
         """
         date = DateProcessor.parse_date(date)
 
-        return date.strftime(format)
+        return date.strftime(format_str)
 
     @staticmethod
-    def pretty_date(
-        date: Union[str, datetime.datetime], format_str: str = "%d-%m-%Y"
-    ) -> str:
+    def pretty_date(date: DateType, format_str: str = "%d-%m-%Y") -> str:
         """Return the date in a pretty printable format dd/mm/yyyy"""
         date = DateProcessor.parse_date(date)
 
@@ -74,8 +82,8 @@ class DateProcessor:
 
     @staticmethod
     def dates_range(
-        start_date: Union[str, datetime.datetime],
-        end_date: Union[str, datetime.datetime],
+        start_date: DateType,
+        end_date: DateType,
         date_freq: DateFrequency,
     ) -> List[str]:
         """Spawn a dates list in normalized format in the desired range"""
@@ -99,14 +107,14 @@ class DateProcessor:
         return dates
 
     @staticmethod
-    def month_abrev(date: Union[str, datetime.datetime]) -> str:
+    def month_abrev(date: DateType) -> str:
         """Return the month as a three-character string"""
         date = DateProcessor.parse_date(date)
 
         return date.strftime("%b").lower()
 
     @staticmethod
-    def start_end_dates(date: Union[str, datetime.datetime]) -> Tuple[str, str]:
+    def start_end_dates(date: DateType) -> Tuple[str, str]:
         """Return the first date and last date in a specific month"""
         date = DateProcessor.parse_date(date)
         today = DateProcessor.today()
@@ -128,7 +136,7 @@ class DateProcessor:
 
     @staticmethod
     def last_n_months(
-        date: Union[str, datetime.datetime],
+        date: DateType,
         lookback: int = 6,
         include_current: bool = True,
     ) -> Tuple[str, str]:
@@ -149,8 +157,8 @@ class DateProcessor:
 
     @staticmethod
     def create_monthly_periods(
-        start_date: Union[str, datetime.datetime],
-        end_date: Union[str, datetime.datetime],
+        start_date: DateType,
+        end_date: DateType,
         month_step: int,
     ) -> List[tuple]:
         """Create monthly periods given a step (e.g, quaterly=3, semestraly=6, yearly=12)"""
@@ -182,8 +190,8 @@ class DateProcessor:
 
     @staticmethod
     def count_dates(
-        start_date: Union[str, datetime.datetime],
-        end_date: Union[str, datetime.datetime],
+        start_date: DateType,
+        end_date: DateType,
         date_freq: DateFrequency,
     ) -> int:
         """Count the number of days between two dates"""
@@ -263,9 +271,8 @@ class GISUtil:
 
         # first make sure we have the same CRS
         if cube.rio.crs != geometries.crs:
-            print(f"Coverting shp CRS to {cube.rio.crs}")
             geometries = geometries.to_crs(cube.rio.crs)  # type: ignore
-            
+
         # Let's use clip to ignore data outide the geometry
         clipped = cube.rio.clip(geometries)
 
@@ -287,7 +294,6 @@ class GISUtil:
     ):
         """Get a time series of values within the shape, given a reducer method"""
         if cube.rio.crs != shp.crs:
-            print(f"Coverting shp CRS to {cube.rio.crs}")
             shp = shp.to_crs(cube.rio.crs)  # type: ignore
 
         # clip to the desired area

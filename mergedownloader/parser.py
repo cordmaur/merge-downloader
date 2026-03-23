@@ -25,7 +25,7 @@ import xarray as xr
 
 from mergedownloader.enums import InpeTypes
 
-from .utils import DateProcessor, DateFrequency
+from .utils import DateProcessor, DateFrequency, DateType
 
 
 class AbstractParser(ABC):

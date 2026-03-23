@@ -20,5 +20,6 @@ setup(
         "rasterio",
         "rioxarray",
         "contextily",
+        "numpy",
     ],
 )

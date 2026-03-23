@@ -18,7 +18,7 @@ import xarray as xr
 from .inpeparser import InpeTypes
 from .parser import AbstractParser, ProcessorParser, DownloaderParser
 from .file_downloader import FileDownloader
-from .utils import DateProcessor
+from .utils import DateProcessor, DateType
 
 # from .utils import FTPUtil, OSUtil, DateProcessor
 
@@ -198,9 +198,14 @@ class Downloader:
             return self._dbutils
 
         try:  # defer import so local environments avoid auth errors
-            import dbutils  # pylint: disable=all
+            if "dbutils" in globals():
+                self._dbutils = globals()["dbutils"]
+                
+            else:
+                from pyspark.dbutils import DBUtils  # pylint: disable=E0401
 
-            self._dbutils = dbutils
+                self._dbutils = DBUtils()
+
         except Exception as exc:  # pylint: disable=broad-except
             self._logger.debug("databricks sdk runtime unavailable: %s", exc)
             self._dbutils = None
@@ -273,7 +278,7 @@ class Downloader:
         raise ValueError(f"Parser not found for data type {datatype}")
 
     def local_target(
-        self, date: Union[str, datetime], datatype: Union[InpeTypes, str], **kwargs
+        self, date: DateType, datatype: Union[InpeTypes, str], **kwargs
     ) -> Path:
         """todo: write docstring"""
         date = DateProcessor.parse_date(date)
@@ -282,7 +287,7 @@ class Downloader:
 
     # -------------------- Download Functions --------------------
     def get_file(
-        self, date: Union[str, datetime], datatype: Union[InpeTypes, str], **kwargs
+        self, date: DateType, datatype: Union[InpeTypes, str], **kwargs
     ) -> Path | None:
         """
         Get the desired file, given a date and a datatype. The `FileDownloader` will be responsible
@@ -305,7 +310,7 @@ class Downloader:
 
     def get_files(
         self,
-        dates: Iterable[Union[str, datetime]],
+        dates: Iterable[DateType],
         datatype: Union[InpeTypes, str],
         **kwargs,
     ) -> List[Path | None]:
@@ -332,8 +337,8 @@ class Downloader:
 
     def get_range(
         self,
-        start_date: Union[str, datetime],
-        end_date: Union[str, datetime],
+        start_date: DateType,
+        end_date: DateType,
         datatype: Union[InpeTypes, str],
         **kwargs,
     ) -> List[Path | None]:
@@ -353,13 +358,12 @@ class Downloader:
         )
 
     # -------------------- Data Manipulation Functions --------------------
-    def open_file(
-        self, date: Union[str, datetime], datatype: Union[InpeTypes, str], **kwargs
+    @lru_cache(maxsize=128)
+    def _open_file_cached(
+        self, date_str: str, datatype: Union[InpeTypes, str], **kwargs
     ) -> Optional[xr.DataArray]:
-        """
-        Open the file, downloading it, if that's necessary
-        """
-        file = self.get_file(date=date, datatype=datatype, **kwargs)
+        """Internal cached method for opening files"""
+        file = self.get_file(date=date_str, datatype=datatype, **kwargs)
         ds = None
 
         if file is not None:
@@ -385,9 +389,19 @@ class Downloader:
 
         return None
 
+    def open_file(
+        self, date: DateType, datatype: Union[InpeTypes, str], **kwargs
+    ) -> Optional[xr.DataArray]:
+        """
+        Open the file, downloading it, if that's necessary
+        """
+        # Convert date to normalized string for caching (numpy.datetime64 is not hashable)
+        date_str = DateProcessor.normalize_date(date)
+        return self._open_file_cached(date_str, datatype, **kwargs)
+
     def create_cube_dates(
         self,
-        dates: List[Union[str, datetime]],
+        dates: List[DateType],
         datatype: Union[InpeTypes, str],
         dim_key: Optional[str] = "time",
         **kwargs,
@@ -396,6 +410,7 @@ class Downloader:
         Create a cube from a list of dates
         """
         data_arrays = []
+
         for date in dates:
             dset = self.open_file(date=date, datatype=datatype, **kwargs)
 
@@ -407,13 +422,32 @@ class Downloader:
                 data_arrays.append(dset)
 
         cube = xr.concat(data_arrays, dim=dim_key, coords="minimal", compat="override")
+
         return cube
 
     @lru_cache(maxsize=8)
+    def _create_cube_cached(
+        self,
+        start_date_str: str,
+        end_date_str: str,
+        datatype: Union[InpeTypes, str],
+        dim_key: Optional[str] = "time",
+        **kwargs,
+    ) -> xr.DataArray:
+        """Internal cached method for creating cubes"""
+        parser = self.get_parser(datatype=datatype)
+        start_dt = DateProcessor.parse_date(start_date_str)
+        end_dt = DateProcessor.parse_date(end_date_str)
+        dates = parser.dates_range(start_dt, end_dt)
+
+        return self.create_cube_dates(
+            dates=dates, datatype=datatype, dim_key=dim_key, **kwargs
+        )
+
     def create_cube(
         self,
-        start_date: Union[str, datetime],
-        end_date: Union[str, datetime],
+        start_date: DateType,
+        end_date: DateType,
         datatype: Union[InpeTypes, str],
         dim_key: Optional[str] = "time",
         **kwargs,
@@ -421,13 +455,11 @@ class Downloader:
         """
         Create a cube from a range of files
         """
-        parser = self.get_parser(datatype=datatype)
-        start_dt = DateProcessor.parse_date(start_date)
-        end_dt = DateProcessor.parse_date(end_date)
-        dates = parser.dates_range(start_dt, end_dt)
-
-        return self.create_cube_dates(
-            dates=dates, datatype=datatype, dim_key=dim_key, **kwargs
+        # Convert dates to normalized strings for caching (numpy.datetime64 is not hashable)
+        start_date_str = DateProcessor.normalize_date(start_date)
+        end_date_str = DateProcessor.normalize_date(end_date)
+        return self._create_cube_cached(
+            start_date_str, end_date_str, datatype, dim_key, **kwargs
         )
 
     def __del__(self):

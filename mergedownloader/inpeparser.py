@@ -205,10 +205,8 @@ class WRFHourlyParser(DownloaderParser):
 
         date_str = DateProcessor.normalize_date(date)
         forecast_str = DateProcessor.normalize_date(
-            forecast_datetime, format="%Y%m%d%H"
+            forecast_datetime, format_str="%Y%m%d%H"
         )
-
-        print(forecast_str)
 
         return f"WRF_cpt_07KM_{date_str}00_{forecast_str}.grib2"
 
@@ -372,15 +370,29 @@ class WRFDailyProcessor(ProcessorParser):
     def foldername(self, date: datetime, **__):
         year = str(date.year)
         month = str(date.month).zfill(2)
-        return "/".join(["WRF/DAILY", year, month])
+        return "/".join(["WRF_DAILY", year, month])
+
+    def must_update(self, date: datetime, output_folder: Path, **kwargs) -> bool:
+        """
+        Check if the file must be updated.
+        """
+        # This file is computed manually, so we just check if it exists
+        local_target = self.local_target(date, output=output_folder, **kwargs)
+
+        if not local_target.exists():
+            return True
+        else:
+            return False
 
     def list_dependencies(self, date: datetime, **__) -> Dict[InpeTypes, List[str]]:
         """Docstring"""
+        # Make sure date has no time component
+        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
 
         # For WRF Daily, we depend on all hourly files of the given day
         dates = []
-        for hour in range(0, 7 * 24):
-            dt = date + timedelta(hours=hour + 1)
+        for days in range(0, 8):
+            dt = date + timedelta(days=days, hours=12)
             dates.append({"date": date, "forecast_datetime": dt})
 
         # Return the list of dependencies
@@ -392,23 +404,19 @@ class WRFDailyProcessor(ProcessorParser):
         """Docstring"""
 
         # create a cube with the hourly rain
-        cube = xr.concat(dependencies[InpeTypes.HOURLY_WRF], dim="time")
+        cube = xr.concat(dependencies[InpeTypes.HOURLY_WRF], dim="valid_time")
 
-        # accumulate the rain
-        accum = cube.sum(dim="time")
+        # the rain from WRF is cumulative, so we need to calculate the daily rain
+        daily_cube = (cube.shift(valid_time=-1) - cube).dropna(dim="valid_time")
 
         # Adjust name and time coordinates
-        accum = accum.rename(self.constants["var"])
-        ref_time = cube.time[0].values
-        accum = accum.assign_coords({"time": ref_time}).expand_dims(dim="time")
+        daily_cube = daily_cube.rename(self.constants["var"])
+        daily_cube = daily_cube.drop_vars("time").rename({"valid_time": "time"})
 
         # Convert to dataset and adjust additional attributes
-        dset = accum.to_dataset()
+        dset = daily_cube.to_dataset()
         dset.attrs["updated"] = str(datetime.now())
-        dset.attrs["last_hour"] = DateProcessor.normalize_date(
-            cube.time[-1].values.astype("datetime64[s]").item()
-        )
-        dset.attrs["hours"] = len(cube.time)
+        dset.attrs["forecast_days"] = len(daily_cube.time)
 
         return dset
 
@@ -647,6 +655,7 @@ InpeParsers: dict[InpeTypes, AbstractParser] = {
     InpeTypes.MONTHLY_STD_N: MonthlyStdNParser(),
     InpeTypes.MONTHLY_SPI: SPIProcessor(),
     InpeTypes.HOURLY_WRF: WRFHourlyParser(),
+    InpeTypes.DAILY_WRF: WRFDailyProcessor(),
 }
 
 INPE_SERVER = "ftp.cptec.inpe.br"

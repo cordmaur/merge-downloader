@@ -1,5 +1,7 @@
 """Test the DateProcessor class"""
+
 from datetime import datetime
+import numpy as np
 
 from mergedownloader.utils import DateFrequency, DateProcessor
 
@@ -24,6 +26,20 @@ class TestDateProcessor:
         expected_date = datetime(2022, 4, 14)
         assert DateProcessor.parse_date(date_str) == expected_date
 
+        # Test parsing of numpy.datetime64
+        np_date = np.datetime64("2022-04-14T12:00:00")
+        expected_date = datetime(2022, 4, 14, 12, 0, 0)
+        result = DateProcessor.parse_date(np_date)
+        assert isinstance(result, datetime)
+        assert result == expected_date
+
+        # Test parsing of numpy.datetime64 with microseconds
+        np_date_us = np.datetime64("2022-04-14T12:00:00.123456")
+        expected_date_us = datetime(2022, 4, 14, 12, 0, 0, 123456)
+        result_us = DateProcessor.parse_date(np_date_us)
+        assert isinstance(result_us, datetime)
+        assert result_us == expected_date_us
+
     @staticmethod
     def test_normalize_date():
         """Test the normalize_date method"""
@@ -39,6 +55,10 @@ class TestDateProcessor:
         date_str = "2022/04/14"
         assert DateProcessor.normalize_date(date_str) == "20220414"
 
+        # Test normalization of numpy.datetime64
+        np_date = np.datetime64("2022-04-14")
+        assert DateProcessor.normalize_date(np_date) == "20220414"
+
     @staticmethod
     def test_pretty_date():
         """Test the pretty_date method"""
@@ -53,6 +73,10 @@ class TestDateProcessor:
         # Test pretty printing of string with custom format
         date_str = "2022/04/14"
         assert DateProcessor.pretty_date(date_str) == "14-04-2022"
+
+        # Test pretty printing of numpy.datetime64
+        np_date = np.datetime64("2022-04-14")
+        assert DateProcessor.pretty_date(np_date) == "14-04-2022"
 
     @staticmethod
     def test_dates_range():
@@ -81,6 +105,15 @@ class TestDateProcessor:
         expected_dates = ["20200101", "20210101", "20220101"]
         assert (
             DateProcessor.dates_range(start_date, end_date, DateFrequency.YEARLY)
+            == expected_dates
+        )
+
+        # Test with numpy.datetime64
+        np_start = np.datetime64("2022-04-01")
+        np_end = np.datetime64("2022-04-03")
+        expected_dates = ["20220401", "20220402", "20220403"]
+        assert (
+            DateProcessor.dates_range(np_start, np_end, DateFrequency.DAILY)
             == expected_dates
         )
 
