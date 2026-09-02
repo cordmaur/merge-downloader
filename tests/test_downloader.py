@@ -14,9 +14,8 @@ import xarray as xr
 
 from mergedownloader.downloader import Downloader
 from mergedownloader.file_downloader import FileDownloader
-from mergedownloader.enums import ConnectionType
+from mergedownloader.inpeparser import InpeParsers, DailyParser
 from mergedownloader.parser import AbstractParser
-from mergedownloader.inpeparser import InpeParsers, INPE_SERVER, DailyParser
 from mergedownloader.enums import InpeTypes
 from mergedownloader.utils import DateProcessor, DateFrequency
 
@@ -31,10 +30,10 @@ class TestDownloader:
         """Return the test data for the tests"""
         data = {
             "test_dir": "./tests/data",
-            "test_date": "2023-03-01",
-            "end_date": "2023-03-05",
-            "correct_structure": "2023/03",
-            "correct_filename": "MERGE_CPTEC_20230301.grib2",
+            "test_date": "2026-08-01",
+            "end_date": "2026-08-05",
+            "correct_structure": "2026/08",
+            "correct_filename": "MERGE_CPTEC_20260801.grib2",
             "NonExistentFTP": "nonexistent.example.com",
             "DownloadTestFile": "gera_Normais.ksh",
         }
@@ -55,7 +54,7 @@ class TestDownloader:
 
         print("Setting up resources")
 
-        fd = FileDownloader(server=INPE_SERVER, connection_type=ConnectionType.HTTP)
+        fd = FileDownloader()
         downloader = Downloader(
             file_downloader=fd,
             parsers=InpeParsers,
@@ -173,7 +172,6 @@ class TestDownloader:
         assert set(dset.attrs).issuperset({"days", "last_day", "updated"})
 
     # downloader = Downloader(
-    #     server=INPEParsers.FTPurl,
     #     parsers=INPEParsers.parsers,
     #     local_folder="./tests/data",
     # )
@@ -183,7 +181,6 @@ class TestDownloader:
     #     """Test Downloader initialization"""
     #     # create the instance
     #     downloader = Downloader(
-    #         server="ftp.example.com",
     #         parsers=INPEParsers.parsers,
     #         local_folder="tests/data",
     #         avoid_update=True,

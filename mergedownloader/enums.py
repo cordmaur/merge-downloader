@@ -18,13 +18,6 @@ class FileType(Enum):
     NETCDF = ".nc"
 
 
-class ConnectionType(Enum):
-    """Enum to specify connection type (ftp or http)"""
-
-    FTP = "FTP"
-    HTTP = "HTTP"
-
-
 class DownloadMode(Enum):
     """Enum to specify download mode:
     - FORCE: if the file already exists, it will be overwritten

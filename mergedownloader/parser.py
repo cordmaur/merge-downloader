@@ -1,7 +1,7 @@
 """
 The parser module defines the template of a Parser Class.
 
-The `FileDownloader` is just a dumb class for downloading files from FTP or HTTP.
+The `FileDownloader` is just a dumb class for downloading files over HTTP.
 Someone needs to know exactly where the files are. For example, if we want to download
 the monthly average of rainfall, we need to know where is the rainfall data on the server.
 
@@ -16,16 +16,16 @@ With that in mind, we will define an AbstractClass that takes care of the target
 
 from abc import ABC, abstractmethod
 import logging
-from enum import Enum
 from pathlib import Path
 from typing import Union, Dict, List
 from datetime import datetime, timedelta
+from urllib.parse import urljoin, urlparse
 
 import xarray as xr
 
 from mergedownloader.enums import InpeTypes
 
-from .utils import DateProcessor, DateFrequency, DateType
+from .utils import DateProcessor, DateFrequency
 
 
 class AbstractParser(ABC):
@@ -105,22 +105,28 @@ class DownloaderParser(AbstractParser):
     def __init__(self):
         super().__init__()
 
-        # check if it has a root
+        # Each downloader parser owns its complete HTTP base URL.
         assert "root" in self.constants
+        root = self.constants["root"]
+        if root is not None:
+            parsed_root = urlparse(root)
+            if parsed_root.scheme not in {"http", "https"} or not parsed_root.netloc:
+                raise ValueError("Downloader parser root must be a complete HTTP URL")
 
     def remote_folder(self, date: datetime, **kwargs) -> str:
         """Return just the remote folder given a date string"""
-        if self.constants["root"] is not None:
-            path = Path(self.constants["root"]) / self.foldername(date, **kwargs)
-            return str(path)
+        root = self.constants["root"]
+        if root is not None:
+            return urljoin(f"{root.rstrip('/')}/", self.foldername(date, **kwargs))
         return ""
 
     def remote_target(self, date: datetime, **kwargs) -> str:
         """Target is composed by root / folder / filename"""
         remote_folder = self.remote_folder(date, **kwargs)
         if remote_folder:
-            path = Path(remote_folder) / self.filename(date, **kwargs)
-            return str(path)
+            return urljoin(
+                f"{remote_folder.rstrip('/')}/", self.filename(date, **kwargs)
+            )
         return ""
 
 

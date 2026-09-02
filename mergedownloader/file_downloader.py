@@ -1,5 +1,5 @@
 """
-Module that contains the classes for downloading files from FTP or HTTP
+Module that contains the class for downloading files over HTTP
 These classes are designed to be used in the :class:`.Downloader` class
 """
 
@@ -10,25 +10,20 @@ from datetime import datetime
 from typing import Optional, Union
 from pathlib import Path
 import logging
-from functools import partial
-import ssl
-import ftplib
-from urllib import request, parse, error
+from urllib import request, error
 
-from .enums import ConnectionType, DownloadMode
+from .enums import DownloadMode
 
 # from dateutil import parser
 
 
 class FileDownloader:
-    """FTP helper class to download file preserving timestamp and to get file info, among others"""
+    """HTTP helper class for downloading files with update and retry support."""
 
     LOGGER = logging.getLogger(__name__)
 
     def __init__(
         self,
-        server: str,
-        connection_type: Union[ConnectionType, str] = ConnectionType.HTTP,
         download_mode: Union[DownloadMode, str] = DownloadMode.UPDATE,
         log_level: int = logging.INFO,
         check_interval: int = 28800,
@@ -37,9 +32,6 @@ class FileDownloader:
         Initialize a FileDownloader instance
 
         Args:
-            url (str): URL to the server.
-            connection_type (Union[str, ConnectionType], optional): Type of connection.
-            Defaults to "http".
             download_mode (Union[DownloadMode, str], optional): Download mode behavior.
             Defaults to UPDATE.
             log_level (int, optional): Logging level. Defaults to logging.INFO.
@@ -47,20 +39,9 @@ class FileDownloader:
             Defaults to 28800 (8 hours). Set to 0 to disable caching.
 
         """
-        if connection_type == ConnectionType.FTP:
-            raise NotImplementedError("FTP connection is not yet implemented")
-
-        # save the url and type of connection
-        self._server = server
-        self._connection_type = connection_type
         self._download_mode = download_mode
         self._check_interval = check_interval
         self._check_cache = {}  # {remote_url: last_check_timestamp}
-
-        # if it is an FTP connection, the ftp and context variables will be set up
-        if self._connection_type == ConnectionType.FTP:
-            self._context = ssl._create_unverified_context()  # pylint: disable=W0212
-            self._ftp = FileDownloader.open_ftp_connection(server)
 
         # print the representation of the object
         self.logger = FileDownloader._setup_logger(log_level)
@@ -75,78 +56,6 @@ class FileDownloader:
         handler = logging.StreamHandler()
         FileDownloader.LOGGER.addHandler(handler)
         return FileDownloader.LOGGER
-
-    # -------------------- FTP Connection Functionality --------------------
-    @staticmethod
-    def open_ftp_connection(
-        server: str, retrials: int = 5, logger: Optional[logging.Logger] = None
-    ) -> ftplib.FTP:
-        """Open an ftp connection and return an FTP instance"""
-        for attempt in range(retrials):
-            try:
-                ftp = ftplib.FTP(server)
-                ftp.login()
-                ftp.sendcmd("TYPE I")
-                return ftp
-
-            except Exception as exc:  # pylint: disable=broad-except
-                msg = f"Attempt {attempt + 1} to connect failed. "
-                msg += f"Exception {type(exc)}: {exc}"
-
-                if logger is not None:
-                    logger.error(msg)
-                else:
-                    print(msg)
-
-        raise ConnectionError(f"Connection to {server} could not be estabilished")
-
-    def get_connection(self, alt_server: Optional[str] = None) -> Optional[ftplib.FTP]:
-        """
-        Return a connection. If current connection is closed, connect again.
-        If an alternative server is provided, return the alternative server.
-        """
-        if alt_server is not None:
-            return FileDownloader.open_ftp_connection(alt_server)
-
-        if not self.is_connected:
-            self._ftp = FileDownloader.open_ftp_connection(self._server)
-
-        return self._ftp
-
-    # -------------------- Utility Properties --------------------
-    @property
-    def server_url(self) -> str:
-        """Return the url of the server with correct scheme (http or ftp)"""
-
-        parsed_url = parse.urlparse(self._server)
-        scheme = "ftp" if self._connection_type == ConnectionType.FTP else "http"
-        parsed_url = parsed_url._replace(scheme=scheme, netloc=self._server, path="")
-
-        return parsed_url.geturl()
-
-    @property
-    def is_connected(self) -> bool:
-        """Check if the connection is open or if server is accessible"""
-
-        if self._connection_type == ConnectionType.FTP:
-            try:
-                # test if the ftp is still responding
-                self._ftp.pwd()
-                return True
-
-            except Exception:  # pylint:disable=broad-except
-                # otherwise, return False
-                return False
-        else:
-            # try to reach the url through a http request
-            try:
-                with request.urlopen(self.server_url):
-                    pass
-
-            except Exception:  # pylint:disable=broad-except
-                return False
-
-            return True
 
     # -------------------- Private Methods --------------------
     def _update_check_cache(self, cache_key: str) -> None:
@@ -319,17 +228,6 @@ class FileDownloader:
         if success:
             self._update_check_cache(remote_file)
 
-    @staticmethod
-    def _download_ftp_file(
-        ftp: ftplib.FTP,
-        remote_file: str,
-        local_path: Path,
-    ):
-        """Download an ftp file preserving filename and timestamps"""
-        # get the filename and set the target path
-        with open(local_path, "wb") as local_file:
-            ftp.retrbinary("RETR " + remote_file, local_file.write)
-
     # -------------------- Public Methods --------------------
     def clear_check_cache(self) -> None:
         """
@@ -346,23 +244,13 @@ class FileDownloader:
         retrials: int = 5,
     ) -> Optional[Path]:
         """
-        Download an ftp file preserving filename and timestamps.
+        Download an HTTP file preserving the remote filename.
         In the specific case the file does not exists in the server (error 404), we return None.
         """
-
-        # Specify the download function according to the connection type
-        if self._connection_type == ConnectionType.HTTP:
-            download_fn = self._download_http_file
-        else:
-            ftp = self.get_connection()
-            if ftp is None:
-                raise ConnectionError("FTP connection could not be established")
-            download_fn = partial(self._download_ftp_file, ftp=ftp)
 
         # get the filename and set the local path
         filename = os.path.basename(remote_file)
         local_path = Path(local_folder) / filename
-        remote_file = self.server_url + str(remote_file)
 
         self.logger.debug("Remote file: %s", remote_file)
 
@@ -371,7 +259,7 @@ class FileDownloader:
                 if attempt > 0:
                     self.logger.error("Retrying - Attempt=%d", attempt)
 
-                download_fn(remote_file, local_path)
+                self._download_http_file(remote_file, local_path)
 
                 break
 
@@ -396,13 +284,7 @@ class FileDownloader:
 
     # -------------------- Dundler Methods --------------------
     def __repr__(self) -> str:
-        if self._connection_type == ConnectionType.HTTP:
-            output = f"Using wget through HTTP on: {self._server}"
-        else:
-            output = f"FTP {'' if self.is_connected else 'Not '}\n"
-            output += f"connected to server {self._ftp.host}"
-
-        return output
+        return "Using HTTP downloads"
 
 
 __all__ = ["FileDownloader"]

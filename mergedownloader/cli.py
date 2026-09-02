@@ -2,8 +2,8 @@
 This module has the functions for the Command Line Interface.
 
 The CLI has the following functions:
-- init: setup the download folder, and url configurations
-- reset: reset default configuration to './' and 'ftp.cptec.inpe.br'
+- init: setup the download folder and download mode
+- reset: reset the default configuration
 - download: download the data files
 - series: Calculate the rain and create a time-series for the specified period
 
@@ -13,16 +13,12 @@ The CLI has the following functions:
 import argparse
 from configparser import ConfigParser
 from pathlib import Path
-from urllib.parse import urlparse
-
-import requests
-
 import geopandas as gpd
 import xarray as xr
 
 from mergedownloader.file_downloader import FileDownloader
-from mergedownloader.enums import ConnectionType, DownloadMode, InpeTypes
-from mergedownloader.inpeparser import InpeParsers, INPE_SERVER
+from mergedownloader.enums import DownloadMode, InpeTypes
+from mergedownloader.inpeparser import InpeParsers
 from mergedownloader.downloader import Downloader
 from mergedownloader.utils import DateProcessor, GISUtil
 from mergedownloader.chart import ChartUtil
@@ -59,27 +55,10 @@ def validate_config(config: ConfigParser):
         config = open_config()
 
         # Get the variables
-        url = config["DEFAULT"]["url"]
         folder = Path(config["DEFAULT"]["folder"])
-
-        # Check validity of the url
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme:
-            url = "http://" + url
-
-        print(f"Checking connection to {url}")
-        response = requests.get(url, timeout=5)
-        if not response.ok:
-            print(f"URL {url} not responding")
 
         if not folder.exists():
             print(f"Folder specified in config '{folder}' not found")
-
-        # Check validity of the connection type
-        connection_type = config["DEFAULT"]["connection"]
-
-        if connection_type not in ConnectionType.__members__:
-            print(f"Invalid connection type: {connection_type}")
 
         # Check validity of download mode
         download_mode = config["DEFAULT"]["download"]
@@ -166,8 +145,7 @@ def create_argparser() -> argparse.ArgumentParser:
     parser_init = subparsers.add_parser(
         "init",
         help="Initialize the environment",
-        description="The init command is used to set the FTP URL to pull the data from and the "
-        " local download directory.",
+        description="The init command is used to set the local download directory.",
     )
     parser_init.add_argument(
         "-f",
@@ -175,18 +153,6 @@ def create_argparser() -> argparse.ArgumentParser:
         help="Local folder to download the files (relative path).",
         required=True,
         type=Path,
-    )
-    parser_init.add_argument(
-        "-url",
-        help=f"FTP URL of the server. Defaults to '{INPE_SERVER}'",
-        default=INPE_SERVER,
-    )
-    parser_init.add_argument(
-        "-c",
-        "--connection",
-        help=f"Connection type. Defaults to 'HTTP'"
-        f"\nPossible values are {ConnectionType._member_names_}",  # pylint: disable=E1101, W0212
-        default=ConnectionType.HTTP.value,
     )
     parser_init.add_argument(
         "-d",
@@ -256,8 +222,6 @@ def create_downloader() -> Downloader:
     if validate_config(config):
 
         fd = FileDownloader(
-            server=config["DEFAULT"]["url"],
-            connection_type=ConnectionType[config["DEFAULT"]["connection"]],
             download_mode=DownloadMode[config["DEFAULT"]["download"]],
         )
 
@@ -300,9 +264,7 @@ def init(args):
 
     config = ConfigParser()
     config["DEFAULT"] = {
-        "url": args.url,
         "folder": folder.as_posix(),
-        "connection": args.connection,
         "download": args.download,
     }
 

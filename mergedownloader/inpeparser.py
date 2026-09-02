@@ -55,8 +55,8 @@ class DailyParser(DownloaderParser):
     """Daily is the total rainfall for a specific day"""
 
     constants = {  # type: ignore[assignment]
-        "root": "/modelos/tempo/MERGE/GPM",
-        "var": "rdp",
+        "root": "https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM",
+        "var": "prec",
         "name": "Daily Rain",
         "freq": DateFrequency.DAILY,
         "post_proc": grib2_post_proc,
@@ -84,7 +84,7 @@ class DailyAverageParser(DownloaderParser):
     """
 
     constants = {  # type: ignore[assignment]
-        "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
+        "root": "https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "pmed",
         "name": "Daily Average",
         "freq": DateFrequency.DAILY,
@@ -109,7 +109,7 @@ class MonthlyAccumYearlyParser(DownloaderParser):
     """
 
     constants = {  # type: ignore[assignment]
-        "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
+        "root": "https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "pacum",
         "name": "Monthly Accumulated Yearly",
         "freq": DateFrequency.MONTHLY,
@@ -137,7 +137,7 @@ class MonthlyAccumParser(DownloaderParser):
     """
 
     constants = {  # type: ignore[assignment]
-        "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
+        "root": "https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "precacum",
         "name": "Monthly Accumulated",
         "freq": DateFrequency.MONTHLY,
@@ -166,7 +166,7 @@ class YearAccumulatedParser(DownloaderParser):
     """
 
     constants = {  # type: ignore[assignment]
-        "root": "/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
+        "root": "https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM/CLIMATOLOGY",
         "var": "pacum",
         "name": "Year Accumulated",
         "freq": DateFrequency.YEARLY,
@@ -188,7 +188,8 @@ class WRFHourlyParser(DownloaderParser):
     """Hourly is the total rainfall for a specific hour"""
 
     constants = {  # type: ignore[assignment]
-        "root": "/modelos/tempo/",
+        # "root": "https://dataserver.cptec.inpe.br/dataserver_modelos/wrf/ams_07km/brutos/",
+        "root": "https://ftp.cptec.inpe.br/modelos/tempo/WRF/ams_07km/recortes/prec/",
         "var": "unknown",
         "name": "Hourly Rain",
         "freq": DateFrequency.HOURLY,
@@ -215,7 +216,7 @@ class WRFHourlyParser(DownloaderParser):
         year = str(date.year)
         month = str(date.month).zfill(2)
         day = str(date.day).zfill(2)
-        return "/".join(["WRF/ams_07km/recortes/prec", year, month, day, "00"])
+        return "/".join([year, month, day, "00"])
 
 
 # -------------------- Processors for the MONTHLY_AVG_N and MONTHLY_STD_N --------------------
@@ -400,8 +401,10 @@ class WRFDailyProcessor(ProcessorParser):
 
     def create_file(
         self, date: datetime, dependencies: Dict[InpeTypes, List[xr.DataArray]], **__
-    ) -> xr.Dataset:
+    ) -> xr.Dataset | None:
         """Docstring"""
+        if len(dependencies[InpeTypes.HOURLY_WRF]) == 0:
+            return None
 
         # create a cube with the hourly rain
         cube = xr.concat(dependencies[InpeTypes.HOURLY_WRF], dim="valid_time")
@@ -658,8 +661,6 @@ InpeParsers: dict[InpeTypes, AbstractParser] = {
     InpeTypes.DAILY_WRF: WRFDailyProcessor(),
 }
 
-INPE_SERVER = "ftp.cptec.inpe.br"
-
 __all__ = [
     "DailyParser",
     "DailyAverageParser",
@@ -669,5 +670,4 @@ __all__ = [
     "MonthlyAccumManual",
     "InpeTypes",
     "InpeParsers",
-    "INPE_SERVER",
 ]

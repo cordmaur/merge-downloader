@@ -49,17 +49,9 @@ classDiagram
         create_file(date) Dataset
     }
 
-    note for FileDownloader "Download the files from HTTP/FTP" 
+    note for FileDownloader "Download the files over HTTP" 
     class FileDownloader {
-        server: Str
-        connection_type: ConnectionType
         download_file(remote_file: Str, local_folder: Str)
-    }
-
-    class ConnectionType{
-        <<enumeration>>
-        HTTP
-        FTP
     }
 
 
@@ -110,7 +102,6 @@ InpeParsers -- DownloadParser
 InpeParsers -- ProcessorParser
 ProcessorParser --|> AbstractParser
 DownloadParser --|> AbstractParser
-FileDownloader ..> ConnectionType
 AbstractParser "n" o-- "1" Downloader
 Downloader --* FileDownloader
 StatsCalculator ..> Downloader  
@@ -179,18 +170,17 @@ options:
 ```
 
 ## Setting up the environment
-Before starting, we need to setup the download folder. This is done through `merge-downloader init` command. The `-f` flag is used to specify the folder and the `-url` flag can be used to change the FTP server that defaults to `ftp.cptec.inpe.br`. 
+Before starting, we need to setup the download folder. This is done through the `merge-downloader init` command with the `-f` flag.
 ```
 root@c272deddb0f1:/# merge-downloader init -h
 usage: merge-downloader init [-h] -f FOLDER [-url URL]
 
-The init command is used to set the FTP URL to pull the data from and the local download directory.
+The init command is used to set the local download directory.
 
 options:
   -h, --help            show this help message and exit
   -f FOLDER, --folder FOLDER
                         Local folder to download the files (relative path).
-  -url URL              FTP URL of the server. Defaults to 'ftp.cptec.inpe.br'
 root@c272deddb0f1:/# merge-downloader init -f /downloads
 Initializing...
 Setting downloading folder to '/downloads'

@@ -12,7 +12,7 @@ class TestOSUtil:
     def test_get_local_file_info(self):
         """Test the get_local_file_info method"""
         file_info = OSUtil.get_local_file_info(
-            "./tests/data/DAILY/2023/03/MERGE_CPTEC_20230301.grib2"
+            "./tests/data/DAILY/2026/08/MERGE_CPTEC_20260801.grib2"
         )
 
         assert isinstance(file_info["datetime"], datetime)

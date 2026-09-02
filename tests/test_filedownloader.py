@@ -5,7 +5,7 @@ Test Utils Module
 from pathlib import Path
 import pytest
 from mergedownloader.file_downloader import FileDownloader
-from mergedownloader.enums import ConnectionType
+from mergedownloader.enums import DownloadMode
 
 # from mergedownloader.inpeparser import INPEParsers
 
@@ -17,38 +17,26 @@ class TestFileDownloader:
     def fixture_data(self):
         """Return the test data for the tests"""
         data = {
-            "server": "ftp.cptec.inpe.br",
-            "NonExistentFTP": "nonexistent.example.com",
-            "RootMergePath": "/modelos/tempo/MERGE/",
-            "DownloadTestFile": "READ_ME-MERGE.pdf",
+            "server": "https://ftp.cptec.inpe.br",
+            "RootMergePath": "/modelos/tempo/MERGE/GPM/DAILY/2026/08/",
+            "DownloadTestFile": "MERGE_CPTEC_20260801.grib2",
         }
         return data
 
-    def test_initialization(self, fixture_data):
-        """
-        Test that an HTTP connection is opened and that `is_connected` is True.
-        """
-        fd = FileDownloader(fixture_data["server"], connection_type=ConnectionType.HTTP)
-        assert fd._connection_type == ConnectionType.HTTP  # pylint: disable=W0212
-        assert fd.is_connected
-
-        # test for non-existent server
-        fd = FileDownloader(
-            fixture_data["NonExistentFTP"], connection_type=ConnectionType.HTTP
-        )
-        assert not fd.is_connected
-
-        # # Test for gaierror when a non-existent server is passed
-        # with pytest.raises(gaierror):
-        #     FileDownloader(fixture_data["NonExistentFTP"])
+    def test_initialization(self):
+        """Test that the downloader stores its HTTP download policy."""
+        fd = FileDownloader(download_mode=DownloadMode.UPDATE)
+        assert fd._download_mode == DownloadMode.UPDATE  # pylint: disable=W0212
 
     def test_http_download(self, fixture_data):
         """
         Test that a file is downloaded from the HTTP server and that the local file exists.
         """
-        fd = FileDownloader(fixture_data["server"], connection_type=ConnectionType.HTTP)
+        fd = FileDownloader()
         remote_file = (
-            fixture_data["RootMergePath"] + "/" + fixture_data["DownloadTestFile"]
+            fixture_data["server"]
+            + fixture_data["RootMergePath"]
+            + fixture_data["DownloadTestFile"]
         )
         local_folder = "./tests/data/"
         local_path = fd.download_file(remote_file, local_folder)

@@ -1,5 +1,5 @@
 """
-Module with specialized classes to understand the INPE FTP Structure
+Module with specialized classes to understand the INPE data structure
 """
 
 import time
@@ -19,8 +19,6 @@ from .inpeparser import InpeTypes
 from .parser import AbstractParser, ProcessorParser, DownloaderParser
 from .file_downloader import FileDownloader
 from .utils import DateProcessor, DateType
-
-# from .utils import FTPUtil, OSUtil, DateProcessor
 
 
 class Downloader:
@@ -163,6 +161,10 @@ class Downloader:
         assert filled is not None, "Dependencies could not be filled"
         dset = processor.create_file(date=date, dependencies=filled, **kwargs)
 
+        if dset is None:
+            self._logger.warning("No file was created for date %s", date)
+            return None
+
         # Then, let's create the file
         self._logger.info("Creating file %s", local_target)
         self._logger.debug("Updated at %s", dset.attrs["updated"])
@@ -200,7 +202,7 @@ class Downloader:
         try:  # defer import so local environments avoid auth errors
             if "dbutils" in globals():
                 self._dbutils = globals()["dbutils"]
-                
+
             else:
                 from pyspark.dbutils import DBUtils  # pylint: disable=E0401
 
