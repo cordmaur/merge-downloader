@@ -56,7 +56,7 @@ class DailyParser(DownloaderParser):
 
     constants = {  # type: ignore[assignment]
         "root": "https://ftp.cptec.inpe.br/modelos/tempo/MERGE/GPM",
-        "var": "prec",
+        "var": "rdp",
         "name": "Daily Rain",
         "freq": DateFrequency.DAILY,
         "post_proc": grib2_post_proc,
